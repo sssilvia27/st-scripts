@@ -1,5 +1,5 @@
 //name: 开场白管理器
-//description: V7.6 
+//description: V7.7 
 //author: Yellows
 
 (function() {
@@ -12,7 +12,7 @@
     // --- 正则定义 ---
     const TITLE_REGEX = /<!---title:(.*?)--->[\r\n]*/;
     const LORE_REGEX = /<!---lore:([\d,]+)--->[\r\n]*/;
-    const STYLE_ID = 'greeting-jumper-css-v7-6'; 
+    const STYLE_ID = 'greeting-jumper-css-v7-7'; 
 
     $('[id^=greeting-jumper-css]').remove();
     $('head').append(`
@@ -566,7 +566,7 @@ ${scriptClose}
         const charId = SillyTavern.characterId; const charData = window.TavernHelper.getCharData('current'); if (!charData) { toastr.warning("请先打开一个角色聊天"); return ""; }
         let mainPopupInstance = null; const isAutoClose = localStorage.getItem(STORAGE_KEY_AUTO_CLOSE) === 'true';
         const $wrapper = $('<div class="gj-wrapper"></div>');
-        const $headerWrapper = $(`<div class="gj-header-wrapper"><div class="gj-header-row-1"><div class="gj-app-title">开场白管理 <span style="font-size:0.6em; opacity:0.5; font-weight:normal;">v7.6 Fix</span></div><div class="gj-auto-close-wrapper"><label class="gj-checkbox-label"><input type="checkbox" id="gj-auto-close-checkbox" ${isAutoClose ? 'checked' : ''}>自动关闭</label></div></div><div class="gj-header-row-2"><div class="gj-sort-controls"><button type="button" class="gj-sort-toggle-btn" title="进入排序模式"><i class="fa-solid fa-sort"></i> 快速排序</button><button type="button" class="gj-sort-save-btn" title="保存排序"><i class="fa-solid fa-floppy-disk"></i> 保存</button><button type="button" class="gj-sort-cancel-btn" title="取消排序"><i class="fa-solid fa-xmark"></i> 取消</button></div><div class="gj-center-tool-container"><button type="button" class="gj-top-btn directory"><i class="fa-solid fa-list-ol"></i> 目录工具</button></div><div class="gj-icon-group"><button type="button" class="gj-icon-btn add" title="新建"><i class="fa-solid fa-plus"></i></button><button type="button" class="gj-icon-btn search" title="搜索"><i class="fa-solid fa-magnifying-glass"></i></button></div></div></div>`);
+        const $headerWrapper = $(`<div class="gj-header-wrapper"><div class="gj-header-row-1"><div class="gj-app-title">开场白管理 <span style="font-size:0.6em; opacity:0.5; font-weight:normal;">v7.7 Fix</span></div><div class="gj-auto-close-wrapper"><label class="gj-checkbox-label"><input type="checkbox" id="gj-auto-close-checkbox" ${isAutoClose ? 'checked' : ''}>自动关闭</label></div></div><div class="gj-header-row-2"><div class="gj-sort-controls"><button type="button" class="gj-sort-toggle-btn" title="进入排序模式"><i class="fa-solid fa-sort"></i> 快速排序</button><button type="button" class="gj-sort-save-btn" title="保存排序"><i class="fa-solid fa-floppy-disk"></i> 保存</button><button type="button" class="gj-sort-cancel-btn" title="取消排序"><i class="fa-solid fa-xmark"></i> 取消</button></div><div class="gj-center-tool-container"><button type="button" class="gj-top-btn directory"><i class="fa-solid fa-list-ol"></i> 目录工具</button></div><div class="gj-icon-group"><button type="button" class="gj-icon-btn add" title="新建"><i class="fa-solid fa-plus"></i></button><button type="button" class="gj-icon-btn search" title="搜索"><i class="fa-solid fa-magnifying-glass"></i></button></div></div></div>`);
         const $scrollArea = $('<div class="gj-scroll-area"></div>');
         const $mainFooter = $(`<div class="gj-main-footer"><button type="button" class="gj-main-close-btn"><i class="fa-solid fa-xmark"></i> 关闭窗口</button></div>`);
         $wrapper.append($headerWrapper).append($scrollArea).append($mainFooter);
@@ -742,7 +742,18 @@ ${scriptClose}
             } catch (err) { console.error("Sort Save Error:", err); toastr.error("排序保存失败"); toggleSortUI(false); }
         });
         
-        $headerWrapper.find('.add').on('click', async () => { const charObj = SillyTavern.characters[charId]; if (!charObj.data.alternate_greetings) charObj.data.alternate_greetings = []; charObj.data.alternate_greetings.splice(item.index + 1, 0, ""); await forceSave(charId); renderList((1 + charObj.data.alternate_greetings.length) - 1); });
+        // --- 修复点：移除了对 undefined 变量 item 的引用，改为直接 push ---
+        $headerWrapper.find('.add').on('click', async () => { 
+            const charObj = SillyTavern.characters[charId]; 
+            if (!charObj.data.alternate_greetings) charObj.data.alternate_greetings = []; 
+            // 修复逻辑：在末尾追加
+            charObj.data.alternate_greetings.push(""); 
+            await forceSave(charId); 
+            // 刷新列表并滚动到底部
+            renderList(charObj.data.alternate_greetings.length); 
+            toastr.success("已新建开场白");
+        });
+
         $headerWrapper.find('.directory').on('click', () => { safeClose(); setTimeout(() => openDirectoryTool(charId, () => setTimeout(showGreetingManager, 300)), 200); });
         $headerWrapper.find('.search').on('click', () => { safeClose(); setTimeout(() => openSearchAndReplaceLogic(charId), 200); });
         renderList();
