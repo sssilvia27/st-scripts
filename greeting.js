@@ -1,5 +1,5 @@
 //name: 开场白管理器
-//description: V7.5 (分离版) - 仅负责管理界面与插入
+//description: V7.6 
 //author: Yellows
 
 (function() {
@@ -12,7 +12,7 @@
     // --- 正则定义 ---
     const TITLE_REGEX = /<!---title:(.*?)--->[\r\n]*/;
     const LORE_REGEX = /<!---lore:([\d,]+)--->[\r\n]*/;
-    const STYLE_ID = 'greeting-jumper-css-v7-4'; 
+    const STYLE_ID = 'greeting-jumper-css-v7-6'; 
 
     $('[id^=greeting-jumper-css]').remove();
     $('head').append(`
@@ -111,7 +111,6 @@
             .gj-lore-cb { margin-right: 15px; transform: scale(1.5); cursor: pointer; }
             .gj-lore-uid { font-family: monospace; font-size: 0.9em; opacity: 0.6; width: 50px; text-align: center; margin-right: 15px; border-right: 1px solid var(--smart-theme-border-color-2); }
             .gj-lore-name { font-size: 1.05em; font-weight: bold; color: var(--smart-theme-body-color); flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            /* ... (省略部分编辑器/Parser CSS，因未变动且篇幅较长，实际使用时请保留完整 CSS) ... */
              /* Fullscreen Editor */
             .gj-fullscreen-editor { display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--smart-theme-bg); position: relative; }
             .gj-fs-header { padding: 8px 12px; background: var(--smart-theme-content-bg); border-bottom: 1px solid var(--smart-theme-border-color-1); display: flex; flex-direction: column; gap: 6px; transition: all 0.2s; flex-shrink: 0; }
@@ -219,6 +218,7 @@
             if (charObj) {
                 if (!charObj.data) charObj.data = {};
                 if (!Array.isArray(charObj.data.alternate_greetings)) charObj.data.alternate_greetings = [];
+                // 修复崩溃的关键：过滤掉 null 和 undefined，防止产生幽灵空行
                 charObj.data.alternate_greetings = charObj.data.alternate_greetings.map(x => (x === null || x === undefined) ? "" : String(x));
             }
             if (typeof SillyTavern.saveCharacter === 'function') { await SillyTavern.saveCharacter(Number(charId)); await new Promise(r => setTimeout(r, 200)); } 
@@ -226,9 +226,15 @@
         } catch (e) { console.error("Save failed:", e); toastr.error("保存失败，请检查控制台"); }
     }
 
+    // 修复崩溃的关键：防抖动与差异检查，避免不必要的原生UI重绘
     function updateNativeCharacterUI(newText) {
+        if (typeof newText !== 'string') return;
         const $nativeInput = $('textarea[name="first_mes"], #first_mes');
-        if ($nativeInput.length) $nativeInput.val(newText).trigger('input').trigger('change');
+        if ($nativeInput.length) {
+            // 如果内容没变，就不触发原生更新，防止死循环或重绘崩溃
+            if ($nativeInput.val() === newText) return;
+            $nativeInput.val(newText).trigger('input').trigger('change');
+        }
     }
 
     // --- 滚动逻辑 ---
@@ -251,26 +257,82 @@
     }
     const performScroll = ($textarea, pos) => { if (isMobile()) scrollToCursorMobile($textarea, pos); else scrollToCursorPC($textarea, pos); };
 
-    // --- 正则 JSON 生成 ---
+    // --- 修复 Issue 1: 还原旧版正则格式 ---
     const generateRegexJson = (format) => {
         const scriptOpen = "<" + "script>"; const scriptClose = "<" + "/script>";
+        // 还原为旧版的多行 HTML 结构，解决目录按钮显示问题
         const replaceStr = `\`\`\`html
 <!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><style>.prologue-container { font-family: sans-serif; padding: 15px; background: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; color: #333333; } .prologue-title { font-weight: bold; margin-bottom: 12px; font-size: 1.1em; color: #333333; border-bottom: 2px solid #f0f0f0; padding-bottom: 8px; } .prologue-grid { display: flex; flex-direction: column; gap: 8px; } .prologue-btn { background: #f8f9fa; border: 1px solid #e9ecef; padding: 10px 12px; border-radius: 6px; cursor: pointer; text-align: left; transition: all 0.2s; color: #495057; display: flex; align-items: center; } .prologue-btn:hover { background: #e2e6ea; border-color: #ced4da; color: #212529; transform: translateX(2px); } .btn-index { font-weight: bold; margin-right: 8px; color: #7a9a83; }</style></head><body><template id="prologue-data">$1</template><div class="prologue-container"><div class="prologue-title">开场白目录</div><div id="button-list" class="prologue-grid"></div></div>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+    .prologue-container { font-family: sans-serif; padding: 15px; background: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; color: #333333; }
+    .prologue-title { font-weight: bold; margin-bottom: 12px; font-size: 1.1em; color: #333333; border-bottom: 2px solid #f0f0f0; padding-bottom: 8px; }
+    .prologue-grid { display: flex; flex-direction: column; gap: 8px; }
+    .prologue-btn { background: #f8f9fa; border: 1px solid #e9ecef; padding: 10px 12px; border-radius: 6px; cursor: pointer; text-align: left; transition: all 0.2s; color: #495057; display: flex; align-items: center; }
+    .prologue-btn:hover { background: #e2e6ea; border-color: #ced4da; color: #212529; transform: translateX(2px); }
+    .btn-index { font-weight: bold; margin-right: 8px; color: #7a9a83; }
+</style>
+</head>
+<body>
+<template id="prologue-data">
+$1
+</template>
+<div class="prologue-container">
+    <div class="prologue-title">开场白目录</div>
+    <div id="button-list" class="prologue-grid"></div>
+</div>
+
 ${scriptOpen}
 (async function() {
-    const waitForHelper = () => new Promise(resolve => { if (window.TavernHelper) return resolve(window.TavernHelper); const timer = setInterval(() => { if (window.TavernHelper) { clearInterval(timer); resolve(window.TavernHelper); } }, 100); });
+    const waitForHelper = () => new Promise(resolve => {
+        if (window.TavernHelper) return resolve(window.TavernHelper);
+        const timer = setInterval(() => {
+            if (window.TavernHelper) {
+                clearInterval(timer);
+                resolve(window.TavernHelper);
+            }
+        }, 100);
+    });
+
     try {
-        const helper = await waitForHelper(); const template = document.getElementById('prologue-data'); if (!template) return;
-        const rawText = template.innerHTML.trim(); const regex = /^(\\d+)[.、]\\s*([\\s\\S]+?)(?=\\n|$)/gm;
-        const listContainer = document.getElementById('button-list'); let match;
+        const helper = await waitForHelper();
+        const template = document.getElementById('prologue-data');
+        if (!template) return;
+        
+        const rawText = template.innerHTML.trim();
+        const regex = /^(\\d+)[.、]\\s*([\\s\\S]+?)(?=\\n|$)/gm;
+        const listContainer = document.getElementById('button-list');
+        
+        let match;
         while ((match = regex.exec(rawText)) !== null) {
-            const index = match[1]; const title = match[2].trim(); 
-            const btn = document.createElement('div'); btn.className = 'prologue-btn'; btn.innerHTML = \`<span class="btn-index">#\${index}</span> \${title}\`;
-            btn.onclick = async () => { const targetSwipeId = parseInt(index); try { await helper.setChatMessages([{ message_id: 0, swipe_id: targetSwipeId }], { refresh: 'affected' }); const originalBg = btn.style.background; btn.style.background = "rgba(122, 154, 131, 0.2)"; setTimeout(() => { btn.style.background = ""; }, 200); } catch (e) { console.error("切换失败:", e); alert("切换失败，请检查页数。"); } };
+            const index = match[1];
+            const title = match[2].trim();
+            
+            const btn = document.createElement('div');
+            btn.className = 'prologue-btn';
+            btn.innerHTML = \`<span class="btn-index">#\${index}</span> \${title}\`;
+            
+            btn.onclick = async () => {
+                const targetSwipeId = parseInt(index);
+                try {
+                    await helper.setChatMessages([{ message_id: 0, swipe_id: targetSwipeId }], { refresh: 'affected' });
+                    // Visual feedback
+                    const originalBg = btn.style.background;
+                    btn.style.background = "rgba(122, 154, 131, 0.2)";
+                    setTimeout(() => { btn.style.background = ""; }, 200);
+                } catch (e) {
+                    console.error("切换失败:", e);
+                    alert("切换失败，请检查页数。");
+                }
+            };
+            
             listContainer.appendChild(btn);
         }
-    } catch (err) { console.error("Script Error:", err); }
+    } catch (err) {
+        console.error("Script Error:", err);
+    }
 })();
 ${scriptClose}
 </body>
@@ -298,7 +360,8 @@ ${scriptClose}
                 const end = Math.min(i + BATCH_SIZE, totalItems);
                 processFunction(i, end); 
                 $progressContent.find('.gj-progress-sub').text(`请勿关闭 (${end}/${totalItems})`);
-                await sleep(50); 
+                // 修复崩溃：增加批处理间隔，给浏览器GC留时间
+                await sleep(100); 
             }
 
             $progressContent.find('.gj-progress-text').text("正在写入磁盘..."); await sleep(50); 
@@ -503,7 +566,7 @@ ${scriptClose}
         const charId = SillyTavern.characterId; const charData = window.TavernHelper.getCharData('current'); if (!charData) { toastr.warning("请先打开一个角色聊天"); return ""; }
         let mainPopupInstance = null; const isAutoClose = localStorage.getItem(STORAGE_KEY_AUTO_CLOSE) === 'true';
         const $wrapper = $('<div class="gj-wrapper"></div>');
-        const $headerWrapper = $(`<div class="gj-header-wrapper"><div class="gj-header-row-1"><div class="gj-app-title">开场白管理 <span style="font-size:0.6em; opacity:0.5; font-weight:normal;">v7.5</span></div><div class="gj-auto-close-wrapper"><label class="gj-checkbox-label"><input type="checkbox" id="gj-auto-close-checkbox" ${isAutoClose ? 'checked' : ''}>自动关闭</label></div></div><div class="gj-header-row-2"><div class="gj-sort-controls"><button type="button" class="gj-sort-toggle-btn" title="进入排序模式"><i class="fa-solid fa-sort"></i> 快速排序</button><button type="button" class="gj-sort-save-btn" title="保存排序"><i class="fa-solid fa-floppy-disk"></i> 保存</button><button type="button" class="gj-sort-cancel-btn" title="取消排序"><i class="fa-solid fa-xmark"></i> 取消</button></div><div class="gj-center-tool-container"><button type="button" class="gj-top-btn directory"><i class="fa-solid fa-list-ol"></i> 目录工具</button></div><div class="gj-icon-group"><button type="button" class="gj-icon-btn add" title="新建"><i class="fa-solid fa-plus"></i></button><button type="button" class="gj-icon-btn search" title="搜索"><i class="fa-solid fa-magnifying-glass"></i></button></div></div></div>`);
+        const $headerWrapper = $(`<div class="gj-header-wrapper"><div class="gj-header-row-1"><div class="gj-app-title">开场白管理 <span style="font-size:0.6em; opacity:0.5; font-weight:normal;">v7.6 Fix</span></div><div class="gj-auto-close-wrapper"><label class="gj-checkbox-label"><input type="checkbox" id="gj-auto-close-checkbox" ${isAutoClose ? 'checked' : ''}>自动关闭</label></div></div><div class="gj-header-row-2"><div class="gj-sort-controls"><button type="button" class="gj-sort-toggle-btn" title="进入排序模式"><i class="fa-solid fa-sort"></i> 快速排序</button><button type="button" class="gj-sort-save-btn" title="保存排序"><i class="fa-solid fa-floppy-disk"></i> 保存</button><button type="button" class="gj-sort-cancel-btn" title="取消排序"><i class="fa-solid fa-xmark"></i> 取消</button></div><div class="gj-center-tool-container"><button type="button" class="gj-top-btn directory"><i class="fa-solid fa-list-ol"></i> 目录工具</button></div><div class="gj-icon-group"><button type="button" class="gj-icon-btn add" title="新建"><i class="fa-solid fa-plus"></i></button><button type="button" class="gj-icon-btn search" title="搜索"><i class="fa-solid fa-magnifying-glass"></i></button></div></div></div>`);
         const $scrollArea = $('<div class="gj-scroll-area"></div>');
         const $mainFooter = $(`<div class="gj-main-footer"><button type="button" class="gj-main-close-btn"><i class="fa-solid fa-xmark"></i> 关闭窗口</button></div>`);
         $wrapper.append($headerWrapper).append($scrollArea).append($mainFooter);
