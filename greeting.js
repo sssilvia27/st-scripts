@@ -418,7 +418,14 @@ ${scriptClose}
         let entries = []; try { entries = await window.TavernHelper.getLorebookEntries(lorebookName); } catch(e) { toastr.error("读取世界书失败"); return null; }
         const selectedSet = new Set(currentUIDs);
         entries.sort((a, b) => { const aSel = selectedSet.has(a.uid); const bSel = selectedSet.has(b.uid); if (aSel && !bSel) return -1; if (!aSel && bSel) return 1; return a.uid - b.uid; });
-        const $content = $(`<div class="gj-lore-popup-content"><div style="font-weight:bold; margin-bottom:5px;">选择当前开场白要开启的条目:</div><div style="font-size:0.85em; opacity:0.7; margin-bottom:10px;">未勾选的条目将在切换到本开场白时自动关闭。</div><div class="gj-lore-list"></div></div>`);
+      const $content = $(`
+            <div class="gj-lore-popup-content">
+                <div style="font-weight:bold; margin-bottom:5px;">配置专属世界书:</div>
+                <div style="font-size:0.85em; opacity:0.7; margin-bottom:10px; line-height:1.4;">
+                    请勾选本开场白对应的专属世界书条目。切换时将自动启用选中项，并关闭其他开场白的专属条目。
+                </div>
+                <div class="gj-lore-list"></div>
+            </div>`);
         const $list = $content.find('.gj-lore-list');
         entries.forEach(entry => {
             const isChecked = selectedSet.has(entry.uid);
