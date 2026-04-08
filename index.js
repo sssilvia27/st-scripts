@@ -3,8 +3,7 @@
 const repoBase = 'https://raw.githack.com/sssilvia27/st-scripts/main';
 
 const scripts =[
-    { name: '开场白管理器', file: 'greeting.js' },
-    { name: '世界书自动开关', file: 'lore_auto_switch.js' }
+    { name: '开场白管理器(含世界书联动)', file: 'greeting_lore.js' }
 ];
 
 Promise.all(scripts.map(script => {
