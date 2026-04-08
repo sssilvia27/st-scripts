@@ -1,5 +1,3 @@
-// index.js - 模块加载器
-// 【关键修改】：这里的 repoBase 换成不缓存的开发节点
 const repoBase = 'https://raw.githack.com/sssilvia27/st-scripts/main';
 
 const scripts =[
@@ -7,7 +5,6 @@ const scripts =[
 ];
 
 Promise.all(scripts.map(script => {
-    // 因为换了节点，这里的 ?t= 时间戳就能真正发挥防缓存的作用了
     return import(`${repoBase}/${script.file}?t=${Date.now()}`)
         .then(() => {
             console.log(`[ST-Scripts] ${script.name} 加载成功`);
