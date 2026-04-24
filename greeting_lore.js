@@ -1,5 +1,5 @@
 //name: 开场白管理器 (含动态世界书控制)
-//description: V8.0 (Integrated)
+//description: V9.0 
 //author: Yellows & Claude & User
 
 (function() {
