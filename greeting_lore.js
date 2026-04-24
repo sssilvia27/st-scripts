@@ -1,5 +1,5 @@
 //name: 开场白管理器 (含动态世界书控制)
-//description: V9.0 
+//description: V9.0 (Integrated)
 //author: Yellows & Claude & User
 
 (function() {
@@ -345,16 +345,16 @@
                 .gj-adv-input-footer .gj-custom-btn { font-size: 0.8em; padding: 5px 8px; }
                 .gj-adv-fullscreen-btn { font-size: 0.75em; }
             }
-            .gj-upload-zone { display: block; border: 2px dashed var(--smart-theme-border-color-2); border-radius: 8px; padding: 30px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: rgba(0,0,0,0.02); color: var(--smart-theme-body-color); }
+            .gj-upload-zone { display: block; border: 1px solid var(--smart-theme-border-color-1); border-radius: 8px; padding: 28px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: rgba(0,0,0,0.02); color: var(--smart-theme-body-color); }
             .gj-upload-zone:hover { border-color: #7a9a83; background: rgba(122,154,131,0.05); }
             .gj-upload-zone.dragover { border-color: #7a9a83; background: rgba(122,154,131,0.12); transform: scale(1.01); }
             .gj-upload-zone i.gj-upload-icon { font-size: 2em; opacity: 0.4; display: block; margin-bottom: 10px; pointer-events: none; }
             .gj-upload-zone .gj-upload-hint { font-size: 0.9em; opacity: 0.6; margin-top: 6px; pointer-events: none; }
             .gj-upload-zone .gj-upload-main { pointer-events: none; }
             .gj-sb-source-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--smart-theme-border-color-1); margin-bottom: 8px; }
-            .gj-sb-source-tab { flex: 1; padding: 8px 12px; border: none; background: transparent; color: var(--smart-theme-body-color); cursor: pointer; font-size: 0.9em; border-bottom: 2px solid transparent; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; opacity: 0.6; }
-            .gj-sb-source-tab:hover { opacity: 0.9; background: rgba(122,154,131,0.05); }
-            .gj-sb-source-tab.active { opacity: 1; border-bottom-color: #7a9a83; color: #7a9a83; font-weight: 600; }
+            .gj-sb-source-tab, .gj-sb-wb-tab { flex: 1; padding: 8px 12px; border: none; background: transparent; color: var(--smart-theme-body-color); cursor: pointer; font-size: 0.9em; border-bottom: 2px solid transparent; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; opacity: 0.6; }
+            .gj-sb-source-tab:hover, .gj-sb-wb-tab:hover { opacity: 0.9; background: rgba(122,154,131,0.05); }
+            .gj-sb-source-tab.active, .gj-sb-wb-tab.active { opacity: 1; border-bottom-color: #7a9a83; color: #7a9a83; font-weight: 600; }
             .gj-sb-source-panel { }
             .gj-sb-file-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; border: 2px solid #7a9a83; background: rgba(122,154,131,0.08); color: var(--smart-theme-body-color); }
             .gj-sb-file-card i.gj-fc-icon { font-size: 1.8em; color: #7a9a83; flex-shrink: 0; }
@@ -1029,7 +1029,7 @@ RULES:
                     <button type="button" class="gj-sb-source-tab" data-source="paste"><i class="fa-solid fa-paste"></i> 粘贴 HTML</button>
                 </div>
                 <div class="gj-sb-source-panel gj-adv-panel-regex">
-                    <button type="button" class="gj-adv-from-regex-btn gj-upload-zone" style="width:100%;border-style:dashed;">
+                    <button type="button" class="gj-adv-from-regex-btn gj-upload-zone" style="width:100%;">
                         <i class="fa-solid fa-file-code gj-upload-icon"></i>
                         <div class="gj-upload-main">从角色卡局部正则中提取 HTML</div>
                         <div class="gj-upload-hint">点击打开选择器（推荐）</div>
@@ -1406,7 +1406,7 @@ RULES:
                     <button type="button" class="gj-sb-source-tab" data-source="file"><i class="fa-solid fa-cloud-arrow-up"></i> 上传 .json 文件</button>
                 </div>
                 <div class="gj-sb-source-panel gj-sb-panel-regex">
-                    <button type="button" class="gj-sb-pick-regex gj-upload-zone" style="width:100%;border-style:dashed;">
+                    <button type="button" class="gj-sb-pick-regex gj-upload-zone" style="width:100%;">
                         <i class="fa-solid fa-list-check gj-upload-icon"></i>
                         <div class="gj-upload-main">从角色卡局部正则中选取</div>
                         <div class="gj-upload-hint">点击打开选择器（推荐）</div>
@@ -1435,7 +1435,7 @@ RULES:
                         <button type="button" class="gj-sb-wb-tab" data-source="paste"><i class="fa-solid fa-paste"></i> 粘贴</button>
                     </div>
                     <div class="gj-sb-wb-panel gj-sb-wb-panel-pick">
-                        <button type="button" class="gj-sb-pick-wb gj-upload-zone" style="width:100%;border-style:dashed;">
+                        <button type="button" class="gj-sb-pick-wb gj-upload-zone" style="width:100%;">
                             <i class="fa-solid fa-book-open gj-upload-icon"></i>
                             <div class="gj-upload-main">从角色卡世界书中选取条目</div>
                             <div class="gj-upload-hint">点击打开选择器（推荐）</div>
