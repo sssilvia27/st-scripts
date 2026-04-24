@@ -16,7 +16,7 @@
     const DESC_REGEX = /<!---?[\s\u3000]*desc[\s\u3000]*[:：][\s\u3000]*(.*?)[\s\u3000]*-?-->[\r\n]*/i;
     const LORE_REGEX = /<!---?[\s\u3000]*lore[\s\u3000]*[:：][\s\u3000]*([\d,\s\u3000,,]+)[\s\u3000]*-?-->[\r\n]*/i;
     const EXCLUDE_REGEX = /<!---?[\s\u3000]*exclude[\s\u3000]*[:：][\s\u3000]*([\d,\s\u3000,,]+)[\s\u3000]*-?-->[\r\n]*/i;
-    const STYLE_ID = 'greeting-jumper-css-v8-0'; 
+    const STYLE_ID = 'greeting-jumper-css-V9-0'; 
 
     $('[id^=greeting-jumper-css]').remove();
     $('head').append(`
@@ -243,7 +243,14 @@
             .gj-regex-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
             .gj-gen-regex-btn { font-size: 0.85em !important; padding: 6px 12px !important; border: 1px solid var(--smart-theme-border-color-2); border-radius: 4px; cursor: pointer; background: linear-gradient(135deg, #7a9a83, #5a8a6a); color: white; display: flex; align-items: center; gap: 6px; font-weight: bold; transition: all 0.2s; white-space: nowrap; }
             .gj-gen-regex-btn:hover { filter: brightness(1.15); }
-            .gj-adv-beauty-container { display: flex; flex-direction: column; gap: 12px; padding: 10px; color: var(--smart-theme-body-color); position: relative; max-height: 75vh; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+            .gj-adv-beauty-container { display: flex; flex-direction: column; gap: 12px; padding: 10px; color: var(--smart-theme-body-color); position: relative; text-align: left; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+            /* ST Popup 默认内容居中；让我们的扩展内容全部左对齐 */
+            dialog.popup:has(.gj-adv-beauty-container) .popup-content,
+            dialog.popup:has(.gj-adv-beauty-container) .popup-content > div { text-align: left; }
+            /* 所有屏幕尺寸：让 popup 容器按 flex 布局，内容区可滚动（解决手机上滚不到底部按钮的问题） */
+            dialog.popup:has(.gj-adv-beauty-container) { display: flex !important; flex-direction: column !important; }
+            dialog.popup:has(.gj-adv-beauty-container) .popup-content { display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; min-height: 0 !important; overflow: hidden !important; }
+            dialog.popup:has(.gj-adv-beauty-container) .popup-content > div { flex: 1 1 auto; min-height: 0; }
             .gj-adv-header-row { display: flex; align-items: center; justify-content: space-between; }
             .gj-adv-config-btn { background: transparent; border: 1px solid var(--smart-theme-border-color-1, #444); color: var(--smart-theme-body-color); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.85em; opacity: 0.6; transition: all 0.2s; }
             .gj-adv-config-btn:hover { opacity: 1; border-color: #7a9a83; }
@@ -304,7 +311,6 @@
                 }
                 dialog.popup:has(.gj-wrapper) .popup-content,
                 dialog.popup:has(.gj-parse-container) .popup-content,
-                dialog.popup:has(.gj-adv-beauty-container) .popup-content,
                 dialog.popup:has(.gj-lore-popup-content) .popup-content,
                 dialog.popup:has(.gj-prompt-container) .popup-content {
                     width: 100% !important;
@@ -315,15 +321,16 @@
                 }
                 dialog.popup:has(.gj-wrapper) .popup-content > div,
                 dialog.popup:has(.gj-parse-container) .popup-content > div,
-                dialog.popup:has(.gj-adv-beauty-container) .popup-content > div,
                 dialog.popup:has(.gj-lore-popup-content) .popup-content > div,
                 dialog.popup:has(.gj-prompt-container) .popup-content > div {
                     flex: 1 1 auto;
                     min-height: 0;
                 }
             }
+            /* 手机端：给 popup 一个合理的最大高度，避免撑出视口，内容靠 flex 接管滚动 */
             @media (max-width: 768px) {
-                .gj-adv-beauty-container { max-height: 80vh; padding: 6px; gap: 8px; }
+                dialog.popup:has(.gj-adv-beauty-container) { max-height: 92vh !important; width: 96vw !important; max-width: 96vw !important; box-sizing: border-box !important; }
+                .gj-adv-beauty-container { padding: 6px; gap: 8px; }
                 .gj-adv-phase { display: flex; flex-direction: column; gap: 8px; }
                 .gj-adv-input { min-height: 120px; }
                 .gj-adv-result-editor { min-height: 80px; max-height: 20vh; font-size: 0.85em; padding: 6px; }
@@ -375,6 +382,35 @@
             .gj-sb-result-banner .gj-sb-suggested-regex { font-weight: normal; font-size: 0.85em; opacity: 0.7; font-family: monospace; margin-left: 4px; word-break: break-all; }
             .gj-sb-btn-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
             .gj-sb-btn-row .gj-custom-btn { padding: 8px 16px; border-radius: 6px; font-size: 0.9em; }
+            .gj-adv-refine-bar .gj-hist-btn { padding: 6px 10px; font-size: 0.9em; flex-shrink: 0; }
+            .gj-adv-refine-bar .gj-hist-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+            .gj-adv-refine-bar .gj-hist-btn .gj-hist-count { font-size: 0.75em; opacity: 0.7; margin-left: 2px; }
+            .gj-sbgen-mat-list { display: flex; flex-direction: column; gap: 6px; }
+            .gj-sbgen-mat-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--smart-theme-border-color-1); border-radius: 8px; background: rgba(0,0,0,0.02); cursor: pointer; transition: all 0.15s; }
+            .gj-sbgen-mat-item:hover { border-color: #7a9a83; background: rgba(122,154,131,0.05); }
+            .gj-sbgen-mat-item input[type="checkbox"] { flex-shrink: 0; transform: scale(1.15); cursor: pointer; }
+            .gj-sbgen-mat-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            .gj-sbgen-mat-title { font-weight: 600; font-size: 0.95em; display: flex; align-items: center; gap: 6px; color: var(--smart-theme-body-color); }
+            .gj-sbgen-mat-hint { font-size: 0.8em; opacity: 0.65; color: var(--smart-theme-body-color); }
+            .gj-sbgen-mat-item .gj-custom-btn { flex-shrink: 0; padding: 6px 10px; font-size: 0.85em; min-width: 72px; justify-content: center; }
+            .gj-sbgen-mat-extra .gj-sbgen-extra-input { width: 100%; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--smart-theme-border-color-1); border-radius: 4px; background: var(--smart-theme-input-bg); color: var(--smart-theme-body-color); font-size: 0.85em; box-sizing: border-box; resize: vertical; outline: none; }
+            .gj-sbgen-mat-extra .gj-sbgen-extra-input:focus { border-color: #7a9a83; }
+            .gj-sbgen-entry-list { display: flex; flex-direction: column; }
+            .gj-sbgen-entry-row input[type="text"], .gj-sbgen-entry-row select, .gj-sbgen-tpl-row input[type="text"], .gj-sbgen-tpl-row select { padding: 6px 8px; border: 1px solid var(--smart-theme-border-color-1); border-radius: 4px; background: var(--smart-theme-input-bg); color: var(--smart-theme-body-color); font-size: 0.85em; outline: none; box-sizing: border-box; }
+            .gj-sbgen-entry-row input[type="text"]:focus, .gj-sbgen-entry-row select:focus, .gj-sbgen-tpl-row input[type="text"]:focus, .gj-sbgen-tpl-row select:focus { border-color: #7a9a83; }
+            .gj-sbgen-entry-row .gj-custom-btn, .gj-sbgen-tpl-row .gj-custom-btn { padding: 4px 8px; font-size: 0.85em; }
+            .gj-sbgen-suggested-regex { font-weight: normal; font-size: 0.85em; opacity: 0.7; font-family: monospace; margin-left: 4px; word-break: break-all; }
+            /* 状态栏工具 - 右上角无边框图标按钮 */
+            .gj-sbgen-icon-btn { background: transparent; border: none; color: var(--smart-theme-body-color); padding: 4px 7px; border-radius: 4px; cursor: pointer; font-size: 1em; opacity: 0.55; transition: opacity 0.2s; }
+            .gj-sbgen-icon-btn:hover { opacity: 1; color: #7a9a83; }
+            /* 状态栏工具 - 引导 tour 样式（与开场白 tour 同构：absolute 挂在容器内） */
+            @media (max-width: 600px) {
+                .gj-sbgen-mat-item { padding: 8px 10px; gap: 8px; }
+                .gj-sbgen-mat-title { font-size: 0.9em; }
+                .gj-sbgen-mat-hint { font-size: 0.75em; }
+                .gj-sbgen-entry-row { flex-wrap: wrap; }
+                .gj-sbgen-entry-row input[type="text"], .gj-sbgen-entry-row select { flex: 1 1 45% !important; }
+            }
         </style>
     `);
 
@@ -671,6 +707,82 @@ RULES:
 - Use IIFE, unique IDs to avoid conflicts.
 - The outermost container (html, body and root wrapper) MUST have margin:0 and padding:0. No extra whitespace around the panel. The status panel should fill the width with no unnecessary outer spacing.
 - World book should use new tag format with key:value per line.`;
+
+    // Phase 2.1: 分析素材 → 条目建议 + 风格摘要
+    const AI_STATUSBAR_GEN_ANALYZE_PROMPT = `You are a SillyTavern status bar designer. Given character card materials, output a JSON that proposes:
+1) styleSummary — a 2-3 sentence visual brief tailored to the work (palette, typography mood, layout/texture hints).
+2) entries — an array of status bar fields that fit the character and story.
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON object wrapped in a \`\`\`json fence. No prose outside the fence.
+
+JSON SCHEMA:
+{
+  "styleSummary": "string — short visual brief (colors, fonts, mood, layout)",
+  "entries": [
+    { "name": "string", "type": "text"|"progress"|"star"|"icon"|"badge", "placeholder": "string", "min"?: number, "max"?: number, "icon"?: "string (fa-xxx or emoji)", "note"?: "string" }
+  ]
+}
+
+FIELD TYPES:
+- text:     free text value (placeholder shows a realistic example)
+- progress: numeric value with min/max rendered as a bar (placeholder = example number within range)
+- star:     1-5 star rating (min:1, max:5)
+- icon:     icon + text value
+- badge:    compact colored label (state/tag)
+
+RULES:
+- Use the provided default template as the baseline. RENAME/ADAPT entries to fit the character & work vocabulary (e.g. 古风作品 → 时间→时辰, 地点→所在; 玄幻 → 增加"修为"; 职场 → "KPI"; 校园 → "班主任好感度").
+- Keep 8-12 entries total. Remove defaults that don't fit, add 1-3 work-specific ones.
+- Pick type carefully: 时间/地点/着装/动作/碎碎念 → text; 好感度/亲密度/HP/心情指数 → progress; 关系阶段 → badge; 心情/情绪 → icon (with a relevant fa icon or emoji).
+- "styleSummary" must be concrete and visually actionable, mention hex-ish colors or specific font/mood words so a front-end coder can reproduce it. Match the tone/genre from the provided materials.
+- If a "homepage beautify HTML" snippet is provided, analyze its CSS (palette, fonts, border-radius, textures) and reflect those cues in styleSummary so the status bar feels consistent with the homepage.
+- Chinese names for Chinese-language cards, English names otherwise.
+- Do NOT fabricate plot; stay grounded in the provided materials.`;
+
+    // Phase 2.2: 按风格摘要 + 条目 → 最终 HTML(单$1+JS解析) + 世界书 + 示例
+    const AI_STATUSBAR_GEN_RENDER_PROMPT = `You are a SillyTavern status bar generator. Create a BRAND NEW status bar regex template from scratch using the "single $1 capture + JS runtime parsing" architecture.
+
+INPUT you receive:
+- A "styleSummary" describing target visual style.
+- An "entries" array defining field name, type (text/progress/star/icon/badge), placeholder, min/max/icon.
+- Optional reference assets: character description, homepage beautify HTML, existing worldbook text.
+
+OUTPUT FORMAT (strictly):
+Line 1: <!-- findRegex: <status>([\\s\\S]*?)</status> -->
+Then: A COMPLETE standalone HTML document beginning with <!DOCTYPE html>, including <html>, <head> with <meta charset="UTF-8">, <style>, </head>, <body>, inline <script>, </body>, </html>. No markdown fences, no prose.
+Append: <!-- WORLDBOOK_START -->...<!-- WORLDBOOK_END --> — a world-book entry body that instructs the main AI to output <status>...</status> containing key:value lines (one per entry). The worldbook text must enumerate every entry with format hints (e.g. "好感度: 0-100 的整数"). Keep it in the SAME language as the entry names.
+Append: <!-- SAMPLE_START -->...<!-- SAMPLE_END --> — a realistic example <status> body: one key:value per line, using the EXACT entry names, with vivid values plausible for the character & story (NOT generic "示例"/"正常"). Numbers must be varied realistic numbers, not just 50/100.
+
+HTML STRUCTURE (MANDATORY):
+- Hidden raw container: <div id="sb-raw-ID" style="display:none;">$1</div>  (ID = short random suffix so multiple instances don't collide)
+- Visible panel: <div id="sb-panel-ID"></div>
+- One IIFE <script> that: reads hidden div textContent, splits by /\\r?\\n/, parses each line with the TOLERANT key:value regex below, builds a Map, then renders ALL entries into the panel according to their type. Render unknown keys too (graceful).
+
+MANDATORY TOLERANT PARSING REGEX (copy this shape exactly):
+  /^[\\s\\u3000]*(.+?)[\\s\\u3000]*[:：][\\s\\u3000]*(.+?)[\\s\\u3000]*$/
+Parser rules the script MUST handle:
+- Both English colon (:) and Chinese colon (：).
+- Leading/trailing half-width/tab/full-width (\\u3000) spaces on BOTH key and value.
+- Both LF and CRLF line endings. Skip blank lines.
+- Key lookup is whitespace-normalized (replace /[\\s\\u3000]+/g with a single space, trim, then compare), so "HP ", " HP", "HP\\u3000" all match "HP".
+- Value is trimmed on both ends but keeps internal spacing.
+- If a key is missing, render its placeholder as fallback.
+
+RENDERING RULES BY TYPE:
+- text:     plain value
+- progress: render a labeled bar; width% = clamp((value-min)/(max-min)*100, 0, 100). Display "value / max" alongside.
+- star:     render 1-5 filled/empty stars based on numeric value.
+- icon:     render the icon (fa or emoji) + value.
+- badge:    render a pill-style colored label.
+
+STYLE RULES:
+- MUST match the provided styleSummary (palette, typography mood, layout cues, border-radius, textures).
+- If a homepage-beautify HTML is provided, extract its core palette/fonts/radius and apply the SAME visual language for consistency.
+- Dark/light theme compatible (use semi-transparent backgrounds + system color vars where reasonable).
+- Responsive / works on mobile (flex/grid, no fixed wide pixels).
+- html, body, and the root wrapper MUST have margin:0; padding:0. No outer whitespace.
+- Use IIFE + unique IDs to prevent cross-instance conflicts.`;
 
     const getAiConfig = () => {
         try { return JSON.parse(localStorage.getItem(AI_CONFIG_KEY)) || {}; } catch { return {}; }
@@ -1060,7 +1172,10 @@ RULES:
                 </div>
                 <div class="gj-adv-refine-bar">
                     <input class="gj-adv-refine-input" type="text" placeholder="输入调整要求，例：把按钮改成圆角、字体改大一点...">
-                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn"><i class="fa-solid fa-paper-plane"></i></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
+                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn" title="发送调整指令"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
                 <div class="gj-adv-input-footer">
                     <button type="button" class="gj-custom-btn gj-adv-back-btn"><i class="fa-solid fa-arrow-left"></i> 返回</button>
@@ -1075,8 +1190,19 @@ RULES:
             </div>
         </div>`);
 
-        const showLoading = (text) => { $ui.find('.gj-adv-loading').show(); $ui.find('.gj-adv-loading-text').text(text || '正在调用 AI 融合...'); };
-        const hideLoading = () => { $ui.find('.gj-adv-loading').hide(); };
+        const positionLoading = () => {
+            const el = $ui[0];
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            $ui.find('.gj-adv-loading').css({ position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px', inset: 'auto' });
+        };
+        const showLoading = (text) => {
+            $ui.css('overflow', 'hidden');
+            positionLoading();
+            $ui.find('.gj-adv-loading').show();
+            $ui.find('.gj-adv-loading-text').text(text || '正在调用 AI 融合...');
+        };
+        const hideLoading = () => { $ui.find('.gj-adv-loading').hide(); $ui.css('overflow', ''); };
 
         const getGreetingListText = () => {
             const charObj = SillyTavern.characters[SillyTavern.characterId];
@@ -1170,9 +1296,9 @@ RULES:
         };
         const wrapFence = (html) => '```html\n' + html + '\n```';
 
-        const doAiMerge = async (messages) => {
+        const doAiMerge = async (messages, loadingText) => {
             isGenerating = true;
-            showLoading();
+            showLoading(loadingText);
             try {
                 const aiCfg = getAiConfig();
                 const useMain = aiCfg.useMainApi !== false;
@@ -1199,6 +1325,38 @@ RULES:
                 console.error('AI merge error:', e);
                 return null;
             }
+        };
+
+        // ---- 版本快照栈：支持无限撤销 / 前进 / 重 roll ----
+        let versionStack = [];
+        let redoStack = [];
+        const pushSnapshot = () => {
+            versionStack.push({
+                html: currentMergedHtml,
+                history: conversationHistory.slice(),
+                regexIdx: fusionSourceRegexIdx
+            });
+            redoStack = []; // 新操作清空前进栈（标准 undo/redo 语义）
+            updateHistBtnState();
+        };
+        const restoreSnapshot = (snap) => {
+            currentMergedHtml   = snap.html;
+            conversationHistory = snap.history.slice();
+            fusionSourceRegexIdx = snap.regexIdx;
+            $ui.find('.gj-adv-result-editor').val(currentMergedHtml ? wrapFence(currentMergedHtml) : '');
+            updatePreview(currentMergedHtml);
+            $ui.find('.gj-adv-overwrite-regex-btn').toggle(fusionSourceRegexIdx !== null);
+        };
+        const updateHistBtnState = () => {
+            const canUndo = versionStack.length >= 2;
+            $ui.find('.gj-adv-undo-btn').prop('disabled', !canUndo);
+            const undoCount = Math.max(0, versionStack.length - 1);
+            $ui.find('.gj-adv-undo-btn .gj-hist-count').text(undoCount > 0 ? ` ${undoCount}` : '');
+            const canRedo = redoStack.length > 0;
+            $ui.find('.gj-adv-redo-btn').prop('disabled', !canRedo);
+            $ui.find('.gj-adv-redo-btn .gj-hist-count').text(redoStack.length > 0 ? ` ${redoStack.length}` : '');
+            const canReroll = conversationHistory.some(m => m.role === 'assistant');
+            $ui.find('.gj-adv-reroll-btn').prop('disabled', !canReroll);
         };
 
         $ui.find('.gj-adv-config-btn').on('click', () => showApiConfigDialog());
@@ -1274,6 +1432,8 @@ RULES:
                 { role: 'system', content: AI_MERGE_SYSTEM_PROMPT },
                 { role: 'user', content: '请将以下美化 HTML 页面融合跳转功能。保留所有视觉效果，只添加/修改跳转逻辑：\n\n' + raw }
             ];
+            versionStack = [];
+            redoStack = [];
 
             $ui.find('.gj-adv-result-editor').val('');
             $ui.find('.gj-adv-preview').empty();
@@ -1281,7 +1441,7 @@ RULES:
             $ui.find('.gj-adv-phase-result').slideDown(200);
             $ui.find('.gj-adv-status').text('(AI 生成中...)');
 
-            const merged = await doAiMerge(conversationHistory);
+            const merged = await doAiMerge(conversationHistory, 'AI 正在融合跳转功能...');
             if (!merged) {
                 $ui.find('.gj-adv-status').text('(失败)');
                 return;
@@ -1293,6 +1453,7 @@ RULES:
             updatePreview(merged);
             $ui.find('.gj-adv-status').text('(AI 生成完毕)');
             if (fusionSourceRegexIdx !== null) $ui.find('.gj-adv-overwrite-regex-btn').show();
+            pushSnapshot();
         });
 
         $ui.find('.gj-adv-result-editor').on('input', function() {
@@ -1310,24 +1471,76 @@ RULES:
             conversationHistory.push({ role: 'user', content: feedback });
             $ui.find('.gj-adv-status').text('(AI 调整中...)');
             $ui.find('.gj-adv-result-editor').val('');
-            const refined = await doAiMerge(conversationHistory);
-            if (!refined) { $ui.find('.gj-adv-status').text('(失败)'); return; }
+            const refined = await doAiMerge(conversationHistory, 'AI 正在按要求调整...');
+            if (!refined) {
+                $ui.find('.gj-adv-status').text('(失败)');
+                conversationHistory.pop(); // 失败把刚加的 user 回撤
+                updateHistBtnState();
+                return;
+            }
             currentMergedHtml = refined;
             conversationHistory.push({ role: 'assistant', content: refined });
             $ui.find('.gj-adv-result-editor').val(wrapFence(refined));
             updatePreview(refined);
             $ui.find('.gj-adv-status').text('(AI 调整完毕)');
+            pushSnapshot();
         };
 
         $ui.find('.gj-adv-refine-btn').on('click', doRefine);
         $ui.find('.gj-adv-refine-input').on('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRefine(); } });
 
+        // 重 roll：用同一 user 指令重新生成当前版本
+        $ui.find('.gj-adv-reroll-btn').on('click', async () => {
+            if (isGenerating) return;
+            let lastAssistantIdx = -1;
+            for (let i = conversationHistory.length - 1; i >= 0; i--) {
+                if (conversationHistory[i].role === 'assistant') { lastAssistantIdx = i; break; }
+            }
+            if (lastAssistantIdx < 0) return;
+            const trimmed = conversationHistory.slice(0, lastAssistantIdx);
+            $ui.find('.gj-adv-status').text('(AI 重新生成中...)');
+            $ui.find('.gj-adv-result-editor').val('');
+            const refined = await doAiMerge(trimmed, 'AI 正在重新生成当前版本...');
+            if (!refined) { $ui.find('.gj-adv-status').text('(失败)'); return; }
+            conversationHistory = trimmed.slice();
+            conversationHistory.push({ role: 'assistant', content: refined });
+            currentMergedHtml = refined;
+            $ui.find('.gj-adv-result-editor').val(wrapFence(refined));
+            updatePreview(refined);
+            $ui.find('.gj-adv-status').text('(重 roll 完毕)');
+            if (versionStack.length > 0) versionStack.pop();
+            pushSnapshot();
+        });
+
+        // 撤销：回到上一版本（当前版本压入 redo 栈）
+        $ui.find('.gj-adv-undo-btn').on('click', () => {
+            if (versionStack.length < 2) return;
+            redoStack.push(versionStack.pop());
+            const prev = versionStack[versionStack.length - 1];
+            restoreSnapshot(prev);
+            $ui.find('.gj-adv-status').text('(已撤销到上一版)');
+            updateHistBtnState();
+        });
+
+        // 前进：找回被撤销的版本
+        $ui.find('.gj-adv-redo-btn').on('click', () => {
+            if (redoStack.length === 0) return;
+            const next = redoStack.pop();
+            versionStack.push(next);
+            restoreSnapshot(next);
+            $ui.find('.gj-adv-status').text('(已前进到下一版)');
+            updateHistBtnState();
+        });
+
         $ui.find('.gj-adv-back-btn').on('click', () => {
             conversationHistory = [];
             currentMergedHtml = '';
+            versionStack = [];
+            redoStack = [];
             $ui.find('.gj-adv-overwrite-regex-btn').hide();
             $ui.find('.gj-adv-phase-result').slideUp(200);
             $ui.find('.gj-adv-phase-input').slideDown(200);
+            updateHistBtnState();
         });
 
         $ui.find('.gj-adv-overwrite-regex-btn').on('click', async () => {
@@ -1385,6 +1598,8 @@ RULES:
         let upgraded = false;
         let sourceRegexIdx = null;
         let sourceWbEntry = null;
+        let versionStack = [];
+        let redoStack = [];
 
         const stripFence = (str) => {
             if (!str) return '';
@@ -1429,7 +1644,7 @@ RULES:
                     <button type="button" class="gj-fc-remove" title="移除"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="gj-adv-editor-section" style="margin-top:8px;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-book"></i> 世界书内容 <span style="opacity:0.5;font-weight:normal;">(可选)</span></label>
+                    <label class="gj-adv-label"><i class="fa-solid fa-book"></i> 世界书内容 <span style="opacity:0.5;font-weight:normal;"></span></label>
                     <div class="gj-sb-source-tabs gj-sb-wb-tabs">
                         <button type="button" class="gj-sb-wb-tab active" data-source="pick"><i class="fa-solid fa-book-open"></i> 从世界书选取</button>
                         <button type="button" class="gj-sb-wb-tab" data-source="paste"><i class="fa-solid fa-paste"></i> 粘贴</button>
@@ -1477,7 +1692,10 @@ RULES:
                 </div>
                 <div class="gj-adv-refine-bar" style="margin-top:6px;">
                     <input class="gj-adv-refine-input gj-sb-refine" type="text" placeholder="输入润色 / 调整要求，例：改成深色风格、加上渐变背景...">
-                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn gj-sb-refine-btn"><i class="fa-solid fa-paper-plane"></i></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sb-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sb-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sb-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
+                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn gj-sb-refine-btn" title="发送润色指令"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
                 <div class="gj-sb-btn-row">
                     <button type="button" class="gj-custom-btn gj-sb-back-btn"><i class="fa-solid fa-arrow-left"></i> 返回</button>
@@ -1493,8 +1711,15 @@ RULES:
             </div>
         </div>`);
 
+        const positionLoading = () => {
+            const el = $tool[0];
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            $tool.find('.gj-adv-loading').css({ position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px', inset: 'auto' });
+        };
         const showLoading = (text) => {
             $tool.css('overflow', 'hidden');
+            positionLoading();
             $tool.find('.gj-adv-loading').show();
             $tool.find('.gj-adv-loading-text').text(text || '正在处理...');
         };
@@ -1512,9 +1737,9 @@ RULES:
 
         const doAiCall = async (messages, opts) => {
             opts = opts || {};
-            const { maxRetries = 1 } = opts;
+            const { maxRetries = 1, loadingText = '正在调用 AI...' } = opts;
             isGenerating = true;
-            showLoading('正在调用 AI...');
+            showLoading(loadingText);
             const aiCfg = getAiConfig();
             const useMain = aiCfg.useMainApi !== false;
             const hasCustom = aiCfg.endpoint && aiCfg.key;
@@ -1552,6 +1777,46 @@ RULES:
             }
             hideLoading(); isGenerating = false;
             return null;
+        };
+
+        // ---- 版本快照栈：支持无限撤销 / 前进 / 重 roll ----
+        const pushSnapshot = () => {
+            versionStack.push({
+                html: currentHtml,
+                history: conversationHistory.slice(),
+                sampleData,
+                wbText: $tool.find('.gj-sb-wb-editor').val() || '',
+                wbVisible: $tool.find('.gj-sb-wb-section').is(':visible'),
+                suggestedRegex: $tool.find('.gj-sb-suggested-regex').text() || '',
+                showOverwriteRegex: $tool.find('.gj-sb-overwrite-regex-btn').is(':visible'),
+                showOverwriteWb: $tool.find('.gj-sb-overwrite-wb-btn').is(':visible')
+            });
+            redoStack = [];
+            updateHistBtnState();
+        };
+        const restoreSnapshot = (snap) => {
+            currentHtml = snap.html;
+            conversationHistory = snap.history.slice();
+            sampleData = snap.sampleData;
+            $tool.find('.gj-sb-html-editor').val(currentHtml ? wrapFence(currentHtml) : '');
+            $tool.find('.gj-sb-sample').val(sampleData || '');
+            $tool.find('.gj-sb-wb-editor').val(snap.wbText || '');
+            $tool.find('.gj-sb-wb-section').toggle(!!snap.wbVisible);
+            $tool.find('.gj-sb-suggested-regex').text(snap.suggestedRegex || '');
+            $tool.find('.gj-sb-overwrite-regex-btn').toggle(!!snap.showOverwriteRegex);
+            $tool.find('.gj-sb-overwrite-wb-btn').toggle(!!snap.showOverwriteWb);
+            updatePreview(currentHtml);
+        };
+        const updateHistBtnState = () => {
+            const canUndo = versionStack.length >= 2;
+            $tool.find('.gj-sb-undo-btn').prop('disabled', !canUndo);
+            const undoCount = Math.max(0, versionStack.length - 1);
+            $tool.find('.gj-sb-undo-btn .gj-hist-count').text(undoCount > 0 ? ` ${undoCount}` : '');
+            const canRedo = redoStack.length > 0;
+            $tool.find('.gj-sb-redo-btn').prop('disabled', !canRedo);
+            $tool.find('.gj-sb-redo-btn .gj-hist-count').text(redoStack.length > 0 ? ` ${redoStack.length}` : '');
+            const canReroll = conversationHistory.some(m => m.role === 'assistant');
+            $tool.find('.gj-sb-reroll-btn').prop('disabled', !canReroll);
         };
 
         const cleanSampleData = (raw) => {
@@ -1801,6 +2066,45 @@ RULES:
             return groups;
         };
 
+        // 统一的升级结果后处理（主升级 / 润色 / 重 roll 通用）
+        const processUpgradeResult = (result, { isInitial } = {}) => {
+            let upgradedHtml = result;
+            const regexMatch = upgradedHtml.match(/<!--\s*findRegex:\s*(.+?)\s*-->/);
+            let suggestedRegex = '';
+            if (regexMatch) {
+                suggestedRegex = regexMatch[1].trim();
+                if (originalJson) originalJson._suggestedRegex = suggestedRegex;
+            }
+            const wbMatch = upgradedHtml.match(/<!--\s*WORLDBOOK_START\s*-->([\s\S]*?)<!--\s*WORLDBOOK_END\s*-->/);
+            if (wbMatch) {
+                $tool.find('.gj-sb-wb-editor').val(wbMatch[1].trim());
+                $tool.find('.gj-sb-wb-section').show();
+                if (isInitial && sourceWbEntry) $tool.find('.gj-sb-overwrite-wb-btn').show();
+                upgradedHtml = upgradedHtml.replace(/<!--\s*WORLDBOOK_START\s*-->[\s\S]*?<!--\s*WORLDBOOK_END\s*-->/, '').trim();
+            }
+            const sampleMatch = upgradedHtml.match(/<!--\s*SAMPLE_START\s*-->([\s\S]*?)<!--\s*SAMPLE_END\s*-->/);
+            if (sampleMatch) {
+                const aiSample = sampleMatch[1].trim();
+                upgradedHtml = upgradedHtml.replace(/<!--\s*SAMPLE_START\s*-->[\s\S]*?<!--\s*SAMPLE_END\s*-->/, '').trim();
+                if (aiSample) {
+                    sampleData = aiSample;
+                    $tool.find('.gj-sb-sample').val(aiSample);
+                }
+            }
+            if (isInitial && !sampleData && worldBookText) {
+                const autoSample = extractSampleFromWb(worldBookText);
+                if (autoSample) {
+                    sampleData = autoSample;
+                    $tool.find('.gj-sb-sample').val(autoSample);
+                }
+            }
+            currentHtml = upgradedHtml;
+            if (suggestedRegex) $tool.find('.gj-sb-suggested-regex').text('新正则: ' + suggestedRegex);
+            $tool.find('.gj-sb-html-editor').val(wrapFence(upgradedHtml));
+            if (isInitial && sourceRegexIdx !== null) $tool.find('.gj-sb-overwrite-regex-btn').show();
+            updatePreview(upgradedHtml);
+        };
+
         $tool.find('.gj-sb-do-upgrade').on('click', async () => {
             if (isGenerating || !originalJson) return;
             worldBookText = $tool.find('.gj-sb-wb-input').val().trim();
@@ -1827,55 +2131,21 @@ RULES:
                 { role: 'system', content: AI_STATUSBAR_UPGRADE_PROMPT },
                 { role: 'user', content: userMsg }
             ];
+            versionStack = [];
+            redoStack = [];
 
             $tool.find('.gj-sb-html-editor').val('');
             $tool.find('.gj-sb-preview').empty();
             $tool.find('.gj-sb-phase-upload').slideUp(200);
             $tool.find('.gj-sb-phase-result').slideDown(200);
-            $tool.find('.gj-sb-status').text('(AI 生成中...)');
-            const result = await doAiCall(conversationHistory);
+            $tool.find('.gj-sb-status').text('(AI 升级中...)');
+            const result = await doAiCall(conversationHistory, { loadingText: 'AI 正在升级状态栏架构...' });
             if (!result) { $tool.find('.gj-sb-status').text('(失败)'); return; }
-
-            let upgradedHtml = result;
-            const regexMatch = upgradedHtml.match(/<!--\s*findRegex:\s*(.+?)\s*-->/);
-            let suggestedRegex = '';
-            if (regexMatch) {
-                suggestedRegex = regexMatch[1].trim();
-                if (originalJson) originalJson._suggestedRegex = suggestedRegex;
-            }
-            const wbMatch = upgradedHtml.match(/<!--\s*WORLDBOOK_START\s*-->([\s\S]*?)<!--\s*WORLDBOOK_END\s*-->/);
-            if (wbMatch) {
-                $tool.find('.gj-sb-wb-editor').val(wbMatch[1].trim());
-                $tool.find('.gj-sb-wb-section').show();
-                if (sourceWbEntry) $tool.find('.gj-sb-overwrite-wb-btn').show();
-                upgradedHtml = upgradedHtml.replace(/<!--\s*WORLDBOOK_START\s*-->[\s\S]*?<!--\s*WORLDBOOK_END\s*-->/, '').trim();
-            }
-            const sampleMatch = upgradedHtml.match(/<!--\s*SAMPLE_START\s*-->([\s\S]*?)<!--\s*SAMPLE_END\s*-->/);
-            if (sampleMatch) {
-                const aiSample = sampleMatch[1].trim();
-                upgradedHtml = upgradedHtml.replace(/<!--\s*SAMPLE_START\s*-->[\s\S]*?<!--\s*SAMPLE_END\s*-->/, '').trim();
-                if (aiSample) {
-                    sampleData = aiSample;
-                    $tool.find('.gj-sb-sample').val(aiSample);
-                }
-            }
-            if (!sampleData && worldBookText) {
-                const autoSample = extractSampleFromWb(worldBookText);
-                if (autoSample) {
-                    sampleData = autoSample;
-                    $tool.find('.gj-sb-sample').val(autoSample);
-                }
-            }
-            currentHtml = upgradedHtml;
-            upgraded = true;
             conversationHistory.push({ role: 'assistant', content: result });
-            if (suggestedRegex) {
-                $tool.find('.gj-sb-suggested-regex').text('新正则: ' + suggestedRegex);
-            }
-            $tool.find('.gj-sb-html-editor').val(wrapFence(upgradedHtml));
-            if (sourceRegexIdx !== null) $tool.find('.gj-sb-overwrite-regex-btn').show();
-            updatePreview(upgradedHtml);
+            processUpgradeResult(result, { isInitial: true });
+            upgraded = true;
             $tool.find('.gj-sb-status').text('(AI 升级完毕)');
+            pushSnapshot();
         });
 
         // === Phase 2: Result ===
@@ -1897,43 +2167,88 @@ RULES:
             const $ri = $tool.find('.gj-sb-refine');
             const feedback = $ri.val().trim();
             if (!feedback) return;
-            if (conversationHistory.length === 0) {
+            const justBootstrapped = conversationHistory.length === 0;
+            if (justBootstrapped) {
                 conversationHistory = [
                     { role: 'system', content: AI_STATUSBAR_UPGRADE_PROMPT },
                     { role: 'user', content: '以下是当前的状态栏 HTML 模板：\n\n' + currentHtml },
                     { role: 'assistant', content: currentHtml }
                 ];
+                // 冷启动也要 snapshot 一下初始状态
+                if (versionStack.length === 0) pushSnapshot();
             }
             $ri.val('');
             conversationHistory.push({ role: 'user', content: feedback });
             $tool.find('.gj-sb-html-editor').val('');
-            $tool.find('.gj-sb-status').text('(AI 调整中...)');
-            const refined = await doAiCall(conversationHistory);
-            if (!refined) { $tool.find('.gj-sb-status').text('(失败)'); return; }
-            let refinedHtml = refined;
-            const wbMatch = refinedHtml.match(/<!--\s*WORLDBOOK_START\s*-->([\s\S]*?)<!--\s*WORLDBOOK_END\s*-->/);
-            if (wbMatch) {
-                $tool.find('.gj-sb-wb-editor').val(wbMatch[1].trim());
-                refinedHtml = refinedHtml.replace(/<!--\s*WORLDBOOK_START\s*-->[\s\S]*?<!--\s*WORLDBOOK_END\s*-->/, '').trim();
+            $tool.find('.gj-sb-status').text('(AI 润色中...)');
+            const refined = await doAiCall(conversationHistory, { loadingText: 'AI 正在按要求润色...' });
+            if (!refined) {
+                $tool.find('.gj-sb-status').text('(失败)');
+                conversationHistory.pop();
+                updateHistBtnState();
+                return;
             }
-            currentHtml = refinedHtml;
             conversationHistory.push({ role: 'assistant', content: refined });
-            $tool.find('.gj-sb-html-editor').val(wrapFence(refinedHtml));
-            updatePreview(refinedHtml);
-            $tool.find('.gj-sb-status').text('(AI 调整完毕)');
+            processUpgradeResult(refined, { isInitial: false });
+            $tool.find('.gj-sb-status').text('(润色完毕)');
+            pushSnapshot();
         };
 
         $tool.find('.gj-sb-refine-btn').on('click', doRefine);
         $tool.find('.gj-sb-refine').on('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRefine(); } });
 
+        // 重 roll：用同一 user 指令重新生成当前版本
+        $tool.find('.gj-sb-reroll-btn').on('click', async () => {
+            if (isGenerating) return;
+            let lastAssistantIdx = -1;
+            for (let i = conversationHistory.length - 1; i >= 0; i--) {
+                if (conversationHistory[i].role === 'assistant') { lastAssistantIdx = i; break; }
+            }
+            if (lastAssistantIdx < 0) return;
+            const trimmed = conversationHistory.slice(0, lastAssistantIdx);
+            $tool.find('.gj-sb-status').text('(AI 重新生成中...)');
+            $tool.find('.gj-sb-html-editor').val('');
+            const refined = await doAiCall(trimmed, { loadingText: 'AI 正在重新生成当前版本...' });
+            if (!refined) { $tool.find('.gj-sb-status').text('(失败)'); return; }
+            conversationHistory = trimmed.slice();
+            conversationHistory.push({ role: 'assistant', content: refined });
+            processUpgradeResult(refined, { isInitial: false });
+            $tool.find('.gj-sb-status').text('(重 roll 完毕)');
+            if (versionStack.length > 0) versionStack.pop();
+            pushSnapshot();
+        });
+
+        // 撤销：回到上一版本（当前版本压入 redo 栈）
+        $tool.find('.gj-sb-undo-btn').on('click', () => {
+            if (versionStack.length < 2) return;
+            redoStack.push(versionStack.pop());
+            const prev = versionStack[versionStack.length - 1];
+            restoreSnapshot(prev);
+            $tool.find('.gj-sb-status').text('(已撤销到上一版)');
+            updateHistBtnState();
+        });
+
+        // 前进：找回被撤销的版本
+        $tool.find('.gj-sb-redo-btn').on('click', () => {
+            if (redoStack.length === 0) return;
+            const next = redoStack.pop();
+            versionStack.push(next);
+            restoreSnapshot(next);
+            $tool.find('.gj-sb-status').text('(已前进到下一版)');
+            updateHistBtnState();
+        });
+
         $tool.find('.gj-sb-back-btn').on('click', () => {
             conversationHistory = [];
             upgraded = false;
             sampleData = '';
+            versionStack = [];
+            redoStack = [];
             $tool.find('.gj-sb-sample').val('');
             $tool.find('.gj-sb-overwrite-regex-btn, .gj-sb-overwrite-wb-btn').hide();
             $tool.find('.gj-sb-phase-result').slideUp(200);
             $tool.find('.gj-sb-phase-upload').slideDown(200);
+            updateHistBtnState();
         });
 
         $tool.find('.gj-sb-overwrite-regex-btn').on('click', async () => {
@@ -2006,6 +2321,1267 @@ RULES:
         });
 
         const toolPopup = new SillyTavern.Popup($tool, SillyTavern.POPUP_TYPE.TEXT, "", { large: true, okButton: "关闭" });
+        await toolPopup.show();
+    }
+
+    // --- 状态栏工具（生成 + 升级，基于当前角色卡风格适配） ---
+    async function openStatusBarAIStudio() {
+        const charId = SillyTavern.characterId;
+        const charObj = SillyTavern.characters?.[charId];
+        if (!charObj) { toastr.warning("请先打开一个角色"); return; }
+
+        let toolPopup = null;
+
+        const DEFAULT_TEMPLATE = [
+            { name: '时间',             type: 'text',     placeholder: '傍晚七点' },
+            { name: '地点',             type: 'text',     placeholder: '苏州·拙政园' },
+            { name: '{{char}}着装',     type: 'text',     placeholder: '白色连衣裙' },
+            { name: '{{user}}着装',     type: 'text',     placeholder: '休闲衬衫' },
+            { name: '{{char}}动作',     type: 'text',     placeholder: '微微侧身，手指绕着发梢' },
+            { name: '{{user}}动作',     type: 'text',     placeholder: '坐在她对面，指尖轻敲桌面' },
+            { name: '关系阶段',         type: 'badge',    placeholder: '暧昧期' },
+            { name: '好感度',           type: 'progress', placeholder: '72', min: 0, max: 100 },
+            { name: '碎碎念',           type: 'text',     placeholder: '...他又在看我' }
+        ];
+
+        // 自动匹配我们自己生成的首页跳转正则作为默认的"首页美化"风格参考
+        // 固定 scriptName："开场白跳转(美化)" (融合版) 优先，其次 "开场白跳转"（基础版）
+        const autoPickHomepageRegex = () => {
+            const scripts = charObj?.data?.extensions?.regex_scripts || [];
+            let idx = scripts.findIndex(s => {
+                const n = s && s.scriptName || '';
+                return n.includes('开场白跳转') && n.includes('美化');
+            });
+            if (idx < 0) idx = scripts.findIndex(s => (s && s.scriptName || '').includes('开场白跳转'));
+            if (idx < 0 || !scripts[idx]?.replaceString) return null;
+            return {
+                idx,
+                name: scripts[idx].scriptName || '未命名',
+                html: scripts[idx].replaceString.trim().replace(/^```(?:html)?\s*/i, '').replace(/```\s*$/, '').trim()
+            };
+        };
+        const autoHomepage = autoPickHomepageRegex();
+
+        // 扫描角色卡所有开场白（first_mes + alternate_greetings），提取 title / body
+        const parseG = (raw) => {
+            if (!raw) return { title: '', body: '' };
+            const p = (typeof parseMessageContent === 'function') ? parseMessageContent(raw) : { title: '', body: raw };
+            return { title: (p && p.title || '').trim(), body: (p && p.body || raw).trim() };
+        };
+        const allGreetings = (() => {
+            const list = [];
+            const fm = charObj && charObj.first_mes || '';
+            if (fm) list.push({ displayNum: 0, ...parseG(fm) });
+            const alts = charObj?.data?.alternate_greetings || [];
+            alts.forEach((g, i) => {
+                if (g && String(g).trim()) list.push({ displayNum: i + 1, ...parseG(g) });
+            });
+            return list;
+        })();
+
+        // ---- state ----
+        let selected = {
+            persona:   true,
+            greeting:  allGreetings.length > 0,
+            pickedGreetings: allGreetings.length > 0 ? [allGreetings[0]] : [],
+            template:  true,
+            homepage:  !!autoHomepage,
+            pickedHomepageIdx:  autoHomepage ? autoHomepage.idx  : null,
+            pickedHomepageName: autoHomepage ? autoHomepage.name : '',
+            pickedHomepageHtml: autoHomepage ? autoHomepage.html : '',
+            worldbook: false, pickedWbEntries: [],
+            extra: ''
+        };
+        let templateEntries = DEFAULT_TEMPLATE.map(e => ({ ...e }));
+        let proposal = null;          // { styleSummary, entries }
+        let conversationHistory = [];
+        let currentHtml = '';
+        let suggestedRegex = '<status>([\\s\\S]*?)</status>';
+        let sampleData = '';
+        let worldBookOutput = '';
+        let isGenerating = false;
+
+        const stripFence = (s) => { if (!s) return ''; return s.trim().replace(/^```(?:html|json)?\s*/i, '').replace(/```\s*$/, '').trim(); };
+        const wrapFence  = (s) => '```html\n' + s + '\n```';
+        const cleanAiOutput = (text) => {
+            let html = (text || '').trim();
+            html = html.replace(/^```html\s*/i, '').replace(/```\s*$/, '');
+            html = html.replace(/^```\s*/i, '').replace(/```\s*$/, '');
+            return html.trim();
+        };
+
+        const $tool = $(`<div class="gj-adv-beauty-container gj-sbgen-container">
+            <div class="gj-adv-header-row">
+                <label class="gj-adv-label"><i class="fa-solid fa-wand-magic-sparkles"></i> 状态栏工具</label>
+                <button type="button" class="gj-sbgen-icon-btn gj-sbgen-help-btn" title="帮助 / 使用说明" style="margin-left:auto;"><i class="fa-solid fa-circle-question"></i></button>
+                <button type="button" class="gj-sbgen-icon-btn gj-sbgen-config-btn" title="AI 配置"><i class="fa-solid fa-gear"></i></button>
+            </div>
+
+            <div class="gj-sb-source-tabs gj-sbgen-mode-tabs">
+                <button type="button" class="gj-sb-source-tab active" data-mode="gen"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成状态栏</button>
+                <button type="button" class="gj-sb-source-tab" data-mode="upgrade"><i class="fa-solid fa-arrow-up-right-dots"></i> 升级现有状态栏</button>
+            </div>
+
+            <!-- Phase 0: 素材采集 -->
+            <div class="gj-adv-phase gj-sbgen-phase-mat">
+                <div style="opacity:0.7;font-size:0.9em;line-height:1.5;margin-bottom:6px;">
+                    选择要参考的素材，AI 会据此让状态栏<b>条目</b>与<b>视觉风格</b>都贴合当前角色卡。
+                </div>
+
+                <div class="gj-sbgen-mat-list">
+                    <label class="gj-sbgen-mat-item">
+                        <input type="checkbox" class="gj-sbgen-chk-persona" checked>
+                        <div class="gj-sbgen-mat-info">
+                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-user"></i> 角色设定</div>
+                            <div class="gj-sbgen-mat-hint">自动读取</div>
+                        </div>
+                        <button type="button" class="gj-custom-btn gj-sbgen-mat-preview" data-src="persona"><i class="fa-solid fa-eye"></i> 预览</button>
+                    </label>
+
+                    <div class="gj-sbgen-mat-item">
+                        <input type="checkbox" class="gj-sbgen-chk-greeting" ${allGreetings.length ? 'checked' : ''}>
+                        <div class="gj-sbgen-mat-info">
+                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-message"></i> 开场白正文</div>
+                            <div class="gj-sbgen-mat-hint gj-sbgen-greeting-hint"></div>
+                        </div>
+                        <button type="button" class="gj-custom-btn gj-sbgen-pick-greeting"><i class="fa-solid fa-list-check"></i> 选取</button>
+                    </div>
+
+                    <div class="gj-sbgen-mat-item">
+                        <input type="checkbox" class="gj-sbgen-chk-homepage" ${autoHomepage ? 'checked' : ''}>
+                        <div class="gj-sbgen-mat-info">
+                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-palette"></i> 首页美化</div>
+                            <div class="gj-sbgen-mat-hint gj-sbgen-homepage-hint">${autoHomepage ? ('已自动匹配：<b>' + _.escape(autoHomepage.name) + '</b>（点【选取】可替换）') : '从局部正则中挑一条美化 HTML 作为<b>视觉风格</b>参考'}</div>
+                        </div>
+                        <button type="button" class="gj-custom-btn gj-sbgen-pick-homepage"><i class="fa-solid fa-list-check"></i> 选取</button>
+                    </div>
+
+                    <div class="gj-sbgen-mat-item">
+                        <input type="checkbox" class="gj-sbgen-chk-worldbook">
+                        <div class="gj-sbgen-mat-info">
+                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-book"></i> 世界书条目</div>
+                            <div class="gj-sbgen-mat-hint gj-sbgen-wb-hint">可多选，用作世界观 / 剧情设定参考</div>
+                        </div>
+                        <button type="button" class="gj-custom-btn gj-sbgen-pick-wb"><i class="fa-solid fa-list-check"></i> 选取</button>
+                    </div>
+
+                    <div class="gj-sbgen-mat-item">
+                        <input type="checkbox" class="gj-sbgen-chk-template" checked>
+                        <div class="gj-sbgen-mat-info">
+                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-list-check"></i> 常规条目模板</div>
+                            <div class="gj-sbgen-mat-hint">在默认 9 条的基础上修改</div>
+                        </div>
+                        <button type="button" class="gj-custom-btn gj-sbgen-edit-template"><i class="fa-solid fa-pen"></i> 编辑</button>
+                    </div>
+
+                    <div class="gj-sbgen-mat-item gj-sbgen-mat-extra" style="align-items:flex-start;">
+                        <input type="checkbox" class="gj-sbgen-chk-extra" style="margin-top:14px;">
+                        <div class="gj-sbgen-mat-info" style="flex:1;">
+                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-plus"></i> 补充要求</div>
+                            <textarea class="gj-sbgen-extra-input" rows="2" placeholder="例：加入修为/KPI/班主任好感度；标题用竖排；加入战损百分比..."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="button" class="gj-sb-upgrade-cta gj-sbgen-analyze-btn" style="margin-top:12px;">
+                    <i class="fa-solid fa-microscope"></i> 分析并生成条目建议
+                </button>
+            </div>
+
+            <!-- Phase 1: 条目建议 -->
+            <div class="gj-adv-phase gj-sbgen-phase-prop" style="display:none;">
+                <div class="gj-sb-result-banner success">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span>已生成条目建议，可在下方修改后进入下一步</span>
+                </div>
+
+                <div class="gj-adv-editor-section" style="margin-top:6px;">
+                    <label class="gj-adv-label"><i class="fa-solid fa-palette"></i> 视觉风格摘要 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(描述颜色/字体/氛围/排版)</span></label>
+                    <textarea class="gj-sb-worldbook gj-sbgen-style-input" rows="3" placeholder="如：明清古风，朱砂红+墨绿主色，毛笔字标题..."></textarea>
+                </div>
+
+                <div class="gj-adv-editor-section" style="margin-top:8px;">
+                    <label class="gj-adv-label"><i class="fa-solid fa-list-check"></i> 状态栏条目 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(拖动排序 / 可增删 / 可改类型)</span></label>
+                    <div class="gj-sbgen-entry-list"></div>
+                    <button type="button" class="gj-custom-btn gj-sbgen-entry-add" style="margin-top:6px;"><i class="fa-solid fa-plus"></i> 增加一条</button>
+                </div>
+
+                <div class="gj-sb-btn-row" style="margin-top:10px;">
+                    <button type="button" class="gj-custom-btn gj-sbgen-back-mat"><i class="fa-solid fa-arrow-left"></i> 返回</button>
+                    <button type="button" class="gj-custom-btn gj-sbgen-reanalyze"><i class="fa-solid fa-rotate"></i> 重新分析</button>
+                    <span style="flex:1;"></span>
+                    <button type="button" class="gj-custom-btn primary gj-sbgen-render-btn"><i class="fa-solid fa-paint-brush"></i> 生成 HTML</button>
+                </div>
+            </div>
+
+            <!-- Phase 2: 结果（沿用状态栏工具的结果 UI） -->
+            <div class="gj-adv-phase gj-sbgen-phase-result" style="display:none;">
+                <div class="gj-sb-result-banner success">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span>生成完毕</span>
+                    <span class="gj-sbgen-suggested-regex"></span>
+                </div>
+                <div class="gj-adv-result-header" style="margin-top:8px;">
+                    <label class="gj-adv-label"><i class="fa-solid fa-code"></i> 状态栏 HTML <span class="gj-sbgen-status" style="opacity:0.5;font-weight:normal;font-size:0.85em;"></span></label>
+                </div>
+                <textarea class="gj-adv-result-editor gj-sbgen-html-editor" rows="8"></textarea>
+                <div class="gj-adv-editor-section">
+                    <div class="gj-adv-preview-header">
+                        <label class="gj-adv-label"><i class="fa-solid fa-eye"></i> 预览 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(样本数据填充下方可实时预览)</span></label>
+                        <button type="button" class="gj-adv-fullscreen-btn gj-sbgen-fullscreen" title="全屏预览"><i class="fa-solid fa-expand"></i> 全屏</button>
+                    </div>
+                    <div class="gj-adv-preview gj-sbgen-preview"></div>
+                    <textarea class="gj-sb-worldbook gj-sbgen-sample" rows="2" style="margin-top:4px;" placeholder="粘贴或编辑样本数据（key:value 每行一条）"></textarea>
+                </div>
+                <div class="gj-adv-editor-section gj-sbgen-wb-section" style="margin-top:4px;display:none;">
+                    <label class="gj-adv-label"><i class="fa-solid fa-book"></i> 配套世界书内容 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(告知主 AI 每回合按此输出)</span></label>
+                    <textarea class="gj-sb-worldbook gj-sbgen-wb-editor" rows="4"></textarea>
+                </div>
+                <div class="gj-adv-refine-bar" style="margin-top:6px;">
+                    <input class="gj-adv-refine-input gj-sbgen-refine" type="text" placeholder="输入润色要求，例：改成深色风格、好感度改成心形进度条...">
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sbgen-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sbgen-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
+                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sbgen-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
+                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn gj-sbgen-refine-btn" title="发送润色指令"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+                <div class="gj-sb-btn-row">
+                    <button type="button" class="gj-custom-btn gj-sbgen-back-prop"><i class="fa-solid fa-arrow-left"></i> 返回条目</button>
+                    <span style="flex:1;"></span>
+                    <button type="button" class="gj-custom-btn gj-sbgen-add-wb-btn" style="background:#f59e0b;color:#fff;border:none;display:none;" title="新增到世界书"><i class="fa-solid fa-book-medical"></i> 新增到世界书</button>
+                    <button type="button" class="gj-custom-btn success gj-sbgen-export-btn"><i class="fa-solid fa-download"></i> 导出正则</button>
+                </div>
+            </div>
+
+            <div class="gj-adv-loading" style="display:none;">
+                <div class="gj-adv-spinner"></div>
+                <div class="gj-adv-loading-text">正在处理...</div>
+            </div>
+        </div>`);
+
+        const positionLoading = () => {
+            const el = $tool[0];
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            $tool.find('.gj-adv-loading').css({ position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px', inset: 'auto' });
+        };
+        const showLoading = (text) => {
+            $tool.css('overflow', 'hidden');
+            positionLoading();
+            $tool.find('.gj-adv-loading').show();
+            $tool.find('.gj-adv-loading-text').text(text || '正在处理...');
+        };
+        const hideLoading = () => {
+            $tool.find('.gj-adv-loading').hide();
+            $tool.css('overflow-y', 'auto');
+        };
+
+        const doAiCall = async (messages, opts) => {
+            opts = opts || {};
+            const { maxRetries = 1, loadingText = '正在调用 AI...' } = opts;
+            isGenerating = true;
+            showLoading(loadingText);
+            const aiCfg = getAiConfig();
+            const useMain = aiCfg.useMainApi !== false;
+            const hasCustom = aiCfg.endpoint && aiCfg.key;
+            const hasStApi = hasMainApi();
+            if ((useMain && !hasStApi) || (!useMain && !hasCustom)) {
+                hideLoading(); isGenerating = false;
+                toastr.warning(useMain ? "主 API 不可用（未检测到 TavernHelper），请切换到自定义 API" : "请先配置自定义 API");
+                await showApiConfigDialog();
+                return null;
+            }
+            const statusReporter = (s) => { $tool.find('.gj-adv-loading-text').text(s); };
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    if (attempt > 0) showLoading(`正在重试 (${attempt}/${maxRetries})...`);
+                    const result = await callAI(messages, statusReporter);
+                    hideLoading(); isGenerating = false;
+                    if (!result) { toastr.error("AI 返回为空"); return null; }
+                    return result;
+                } catch (e) {
+                    if (isAbortError(e)) { hideLoading(); isGenerating = false; return null; }
+                    const isTimeout = /504|timeout|timed?\s*out|gateway/i.test(e.message);
+                    if (isTimeout && attempt < maxRetries) {
+                        toastr.warning(`请求超时，3 秒后自动重试...`, '', { timeOut: 3000 });
+                        await new Promise(r => setTimeout(r, 3000));
+                        continue;
+                    }
+                    hideLoading(); isGenerating = false;
+                    toastr.error(isTimeout ? "AI 请求超时。建议：再试一次或切换到自定义 API" : ("AI 调用失败: " + e.message));
+                    return null;
+                }
+            }
+            hideLoading(); isGenerating = false;
+            return null;
+        };
+
+        // ---- 素材提取 ----
+        const getPersonaText = () => {
+            const parts = [];
+            if (charObj.description) parts.push('【描述】\n' + charObj.description);
+            if (charObj.personality) parts.push('【性格】\n' + charObj.personality);
+            if (charObj.scenario)    parts.push('【场景】\n' + charObj.scenario);
+            return parts.join('\n\n');
+        };
+        const getGreetingText = () => {
+            const picked = (selected.pickedGreetings || []).filter(g => g && g.body);
+            if (!picked.length) return '';
+            if (picked.length === 1) return picked[0].body;
+            return picked.map((g, i) => {
+                const label = g.title || `开场白 #${g.displayNum}`;
+                return `### 开场白 ${i + 1}：${label}\n${g.body}`;
+            }).join('\n\n');
+        };
+        const updateGreetingHint = () => {
+            const total = allGreetings.length;
+            const picked = selected.pickedGreetings || [];
+            const $h = $tool.find('.gj-sbgen-greeting-hint');
+            if (total === 0) { $h.text('（当前角色卡没有可用开场白）'); return; }
+            if (picked.length === 0) {
+                $h.html(`未选（共 <b>${total}</b> 条）`);
+            } else if (picked.length === 1) {
+                const p = picked[0];
+                const label = p.title || `开场白 #${p.displayNum}`;
+                const suffix = total > 1 ? ` / 共 <b>${total}</b> 条` : '';
+                $h.html(`已选：<b>${_.escape(label)}</b>${suffix}`);
+            } else {
+                $h.html(`已选 <b>${picked.length}</b> 条 / 共 <b>${total}</b> 条`);
+            }
+        };
+        const truncate = (text, max) => {
+            if (!text) return '';
+            if (text.length <= max) return text;
+            return text.substring(0, max) + `\n...(已截断，共 ${text.length} 字)`;
+        };
+
+        // ---- 素材勾选 UI 事件 ----
+        $tool.find('.gj-sbgen-chk-persona').on('change', function () { selected.persona = $(this).is(':checked'); });
+        $tool.find('.gj-sbgen-chk-greeting').on('change', function () {
+            selected.greeting = $(this).is(':checked');
+            // 首次勾回来但没选中任何条目 → 默认补上 first_mes
+            if (selected.greeting && selected.pickedGreetings.length === 0 && allGreetings[0]) {
+                selected.pickedGreetings = [allGreetings[0]];
+                updateGreetingHint();
+            }
+        });
+        $tool.find('.gj-sbgen-chk-template').on('change', function () { selected.template = $(this).is(':checked'); });
+        $tool.find('.gj-sbgen-chk-homepage').on('change', function () { selected.homepage = $(this).is(':checked'); });
+        $tool.find('.gj-sbgen-chk-worldbook').on('change', function () { selected.worldbook = $(this).is(':checked'); });
+        $tool.find('.gj-sbgen-chk-extra').on('change', function () { /* 勾选即启用；文本单独维护 */ });
+        $tool.find('.gj-sbgen-extra-input').on('input', function () {
+            selected.extra = $(this).val();
+            if (selected.extra.trim()) $tool.find('.gj-sbgen-chk-extra').prop('checked', true);
+        });
+
+        // 素材内容预览（仅角色设定；开场白预览整合进选取弹窗）
+        $tool.find('.gj-sbgen-mat-preview').on('click', async function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const src = $(this).data('src');
+            if (src !== 'persona') return;
+            const content = getPersonaText() || '(空)';
+            const $view = $(`<div style="max-height:60vh;overflow:auto;padding:12px;white-space:pre-wrap;font-size:0.85em;line-height:1.6;color:var(--smart-theme-body-color);text-align:left;">${_.escape(content)}</div>`);
+            const pv = new SillyTavern.Popup($view, SillyTavern.POPUP_TYPE.TEXT, '角色设定', { okButton: "关闭" });
+            await pv.show();
+        });
+
+        // 挑选首页美化正则
+        $tool.find('.gj-sbgen-pick-homepage').on('click', async () => {
+            try {
+                const scripts = charObj?.data?.extensions?.regex_scripts || [];
+                if (!scripts.length) { toastr.warning("当前角色卡没有绑定局部正则"); return; }
+                const items = scripts.map((s, i) => {
+                    const name = _.escape(s.scriptName || '未命名');
+                    const regex = _.escape((s.findRegex || '').substring(0, 50));
+                    const htmlSnippet = _.escape((s.replaceString || '').replace(/\n/g, ' ').substring(0, 80));
+                    return `<div class="gj-sbgen-regex-pick-item" data-idx="${i}" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.15);transition:background 0.15s;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <i class="fa-solid fa-file-code" style="opacity:0.4;"></i>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:bold;font-size:0.9em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+                                <div style="font-size:0.75em;opacity:0.5;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">/${regex}/</div>
+                                <div style="font-size:0.75em;opacity:0.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${htmlSnippet || '(空替换内容)'}</div>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+                const $pick = $(`<div style="max-height:50vh;overflow-y:auto;text-align:left;">${items}</div>`);
+                const pickPopup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.TEXT, "选择首页美化正则 — 作视觉风格参考", { okButton: "取消" });
+                $pick.find('.gj-sbgen-regex-pick-item').on('click', function () {
+                    const idx = parseInt($(this).data('idx'));
+                    const s = scripts[idx];
+                    if (s && s.replaceString) {
+                        selected.pickedHomepageIdx = idx;
+                        selected.pickedHomepageName = s.scriptName || '未命名';
+                        selected.pickedHomepageHtml = stripFence(s.replaceString);
+                        selected.homepage = true;
+                        $tool.find('.gj-sbgen-chk-homepage').prop('checked', true);
+                        $tool.find('.gj-sbgen-homepage-hint').html(`已选：<b>${_.escape(selected.pickedHomepageName)}</b>`);
+                        toastr.success(`已选择「${selected.pickedHomepageName}」作为风格参考`);
+                    }
+                    pickPopup.complete(SillyTavern.POPUP_RESULT.AFFIRMATIVE);
+                });
+                $pick.find('.gj-sbgen-regex-pick-item').on('mouseenter', function () { $(this).css('background', 'rgba(122,154,131,0.1)'); }).on('mouseleave', function () { $(this).css('background', ''); });
+                await pickPopup.show();
+            } catch (e) { console.error(e); toastr.error("读取局部正则失败"); }
+        });
+
+        // 挑选世界书条目（多选）
+        // 开场白多选弹窗（每条可展开查看完整正文）
+        $tool.find('.gj-sbgen-pick-greeting').on('click', async () => {
+            if (!allGreetings.length) { toastr.warning("未找到任何开场白"); return; }
+            const initial = new Set(selected.pickedGreetings.map(g => g.displayNum));
+            const items = allGreetings.map((g, i) => {
+                const checked = initial.has(g.displayNum) ? 'checked' : '';
+                const preview = (g.body || '').substring(0, 80).replace(/\n/g, ' ');
+                const label = g.title || `开场白 #${g.displayNum}`;
+                return `<div class="gj-sbgen-g-wrap" data-idx="${i}" style="border-bottom:1px solid rgba(128,128,128,0.15);">
+                    <div style="display:flex;align-items:stretch;">
+                        <label class="gj-sbgen-g-pick-item" style="flex:1;display:flex;gap:8px;align-items:flex-start;padding:8px 12px;cursor:pointer;transition:background 0.15s;min-width:0;">
+                            <input type="checkbox" ${checked} style="margin-top:4px;">
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:bold;font-size:0.9em;">${_.escape(label)} <span style="opacity:0.4;font-weight:normal;">#${g.displayNum} · ${g.body.length} 字</span></div>
+                                <div class="gj-sbgen-g-preview" style="font-size:0.78em;opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(preview)}</div>
+                            </div>
+                        </label>
+                        <button type="button" class="gj-sbgen-g-expand" title="展开完整正文" style="background:transparent;border:none;border-left:1px solid rgba(128,128,128,0.12);color:var(--smart-theme-body-color);opacity:0.7;cursor:pointer;padding:0 14px;flex-shrink:0;"><i class="fa-solid fa-chevron-down"></i></button>
+                    </div>
+                    <div class="gj-sbgen-g-full" style="display:none;padding:8px 14px 12px;background:rgba(128,128,128,0.06);max-height:40vh;overflow:auto;white-space:pre-wrap;font-size:0.83em;line-height:1.6;color:var(--smart-theme-body-color);">${_.escape(g.body)}</div>
+                </div>`;
+            }).join('');
+            const $header = $(`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid rgba(128,128,128,0.15);">
+                <label class="gj-sbgen-g-all-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em;white-space:nowrap;margin:0;">
+                    <input type="checkbox" class="gj-sbgen-g-all">
+                    <span>全选</span>
+                </label>
+                <div class="gj-sbgen-g-sum" style="flex:1;font-size:0.85em;opacity:0.75;text-align:right;"></div>
+            </div>`);
+            const $sum = $header.find('.gj-sbgen-g-sum');
+            const $pick = $('<div style="text-align:left;"></div>')
+                .append($header)
+                .append('<div style="padding:6px 12px;opacity:0.55;font-size:0.8em;">多选时，AI 会按「标题 + 正文」顺序拼接作为笔触 / 情境参考</div>')
+                .append(`<div style="max-height:50vh;overflow-y:auto;">${items}</div>`);
+            const updateAllChkState = () => {
+                const $items = $pick.find('.gj-sbgen-g-wrap input[type="checkbox"]');
+                const total = $items.length;
+                const checked = $items.filter(':checked').length;
+                const $all = $pick.find('.gj-sbgen-g-all')[0];
+                if (!$all) return;
+                $all.checked = total > 0 && checked === total;
+                $all.indeterminate = checked > 0 && checked < total;
+            };
+            const updateSum = () => {
+                let cnt = 0, chars = 0;
+                $pick.find('.gj-sbgen-g-wrap').each(function () {
+                    if ($(this).find('input[type="checkbox"]').is(':checked')) {
+                        cnt++;
+                        chars += allGreetings[parseInt($(this).data('idx'))].body.length;
+                    }
+                });
+                const warn = chars > 5000 ? '<span style="color:#d97a30;margin-left:8px;">⚠ 超出 5000 字的部分会被截断</span>' : '';
+                $sum.html(`已选 <b>${cnt}</b> 条 / 约 <b>${chars}</b> 字${warn}`);
+                updateAllChkState();
+            };
+            $pick.on('change', '.gj-sbgen-g-wrap input[type="checkbox"]', updateSum);
+            $pick.on('change', '.gj-sbgen-g-all', function () {
+                const ck = $(this).prop('checked');
+                $pick.find('.gj-sbgen-g-wrap input[type="checkbox"]').prop('checked', ck);
+                updateSum();
+            });
+            // 展开/收起完整正文
+            $pick.on('click', '.gj-sbgen-g-expand', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const $wrap = $(this).closest('.gj-sbgen-g-wrap');
+                const $full = $wrap.find('.gj-sbgen-g-full');
+                const $icon = $(this).find('i');
+                const showing = $full.is(':visible');
+                $full.toggle(!showing);
+                $icon.toggleClass('fa-chevron-down', showing).toggleClass('fa-chevron-up', !showing);
+                $(this).attr('title', showing ? '展开完整正文' : '收起');
+            });
+            updateSum();
+            const popup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.CONFIRM, "选择开场白（可多选，点 ⌄ 展开完整正文）", { okButton: "确认选择", cancelButton: "取消" });
+            const result = await popup.show();
+            if (result) {
+                const picked = [];
+                $pick.find('.gj-sbgen-g-wrap').each(function () {
+                    if ($(this).find('input[type="checkbox"]').is(':checked')) picked.push(allGreetings[parseInt($(this).data('idx'))]);
+                });
+                selected.pickedGreetings = picked;
+                selected.greeting = picked.length > 0;
+                $tool.find('.gj-sbgen-chk-greeting').prop('checked', picked.length > 0);
+                updateGreetingHint();
+                toastr.success(picked.length ? `已选择 ${picked.length} 条开场白` : '已清空');
+            }
+        });
+
+        // 初始化开场白 hint（基于默认选中项）
+        updateGreetingHint();
+
+        $tool.find('.gj-sbgen-pick-wb').on('click', async () => {
+            try {
+                const lorebookName = window.TavernHelper?.getCurrentCharPrimaryLorebook?.();
+                if (!lorebookName) { toastr.warning("当前角色未绑定主世界书"); return; }
+                const entries = await window.TavernHelper.getLorebookEntries(lorebookName);
+                if (!entries || !entries.length) { toastr.warning("世界书为空"); return; }
+                const initialChecked = new Set((selected.pickedWbEntries || []).map(e => e.uid));
+                const items = entries.map((e, i) => {
+                    const name = e.comment || (e.key?.length ? e.key[0] : `条目 ${e.uid}`);
+                    const preview = (e.content || '').substring(0, 80).replace(/\n/g, ' ');
+                    const checked = initialChecked.has(e.uid) ? 'checked' : '';
+                    return `<label class="gj-sbgen-wb-pick-item" data-idx="${i}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.15);transition:background 0.15s;">
+                        <input type="checkbox" ${checked} style="margin-top:4px;">
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-weight:bold;font-size:0.9em;">${_.escape(name)} <span style="opacity:0.4;font-weight:normal;">uid:${e.uid}</span></div>
+                            <div style="font-size:0.78em;opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(preview)}</div>
+                        </div>
+                    </label>`;
+                }).join('');
+                const $pick = $(`<div style="text-align:left;"><div style="padding:6px 12px;font-size:0.85em;opacity:0.7;">可多选，AI 会综合参考</div><div style="max-height:50vh;overflow-y:auto;">${items}</div></div>`);
+                const pickPopup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.CONFIRM, "选择世界书条目（多选）", { okButton: "确认选择", cancelButton: "取消" });
+                const result = await pickPopup.show();
+                if (result) {
+                    const picked = [];
+                    $pick.find('.gj-sbgen-wb-pick-item').each(function () {
+                        const idx = parseInt($(this).data('idx'));
+                        const cb = $(this).find('input[type="checkbox"]');
+                        if (cb.is(':checked')) {
+                            const e = entries[idx];
+                            picked.push({ uid: e.uid, name: e.comment || (e.key?.length ? e.key[0] : `条目 ${e.uid}`), content: e.content || '' });
+                        }
+                    });
+                    selected.pickedWbEntries = picked;
+                    selected.worldbook = picked.length > 0;
+                    $tool.find('.gj-sbgen-chk-worldbook').prop('checked', picked.length > 0);
+                    if (picked.length) {
+                        $tool.find('.gj-sbgen-wb-hint').html(`已选 <b>${picked.length}</b> 条：${picked.map(p => _.escape(p.name)).join('、')}`);
+                        toastr.success(`已选择 ${picked.length} 条世界书`);
+                    } else {
+                        $tool.find('.gj-sbgen-wb-hint').text('可多选，用作世界观 / 剧情设定参考');
+                    }
+                }
+            } catch (e) { console.error(e); toastr.error("读取世界书失败: " + e.message); }
+        });
+
+        // 编辑模板条目
+        const openTemplateEditor = async () => {
+            const renderRow = (e, idx) => `<div class="gj-sbgen-tpl-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                <input type="text" class="gj-sbgen-tpl-name" value="${_.escape(e.name)}" style="flex:2;min-width:0;" placeholder="条目名">
+                <select class="gj-sbgen-tpl-type" style="flex:1;min-width:0;">
+                    <option value="text" ${e.type==='text'?'selected':''}>文本</option>
+                    <option value="progress" ${e.type==='progress'?'selected':''}>进度</option>
+                    <option value="star" ${e.type==='star'?'selected':''}>星级</option>
+                    <option value="icon" ${e.type==='icon'?'selected':''}>图标</option>
+                    <option value="badge" ${e.type==='badge'?'selected':''}>标签</option>
+                </select>
+                <input type="text" class="gj-sbgen-tpl-ph" value="${_.escape(e.placeholder||'')}" style="flex:2;min-width:0;" placeholder="示例值">
+                <button type="button" class="gj-custom-btn gj-sbgen-tpl-del" title="删除"><i class="fa-solid fa-trash"></i></button>
+            </div>`;
+            const $editor = $(`<div style="max-height:60vh;overflow:auto;padding:8px;text-align:left;">
+                <div style="opacity:0.7;font-size:0.85em;margin-bottom:8px;">AI 会在这 9 条的基础上为当前角色增删 / 改名 / 调整类型。</div>
+                <div class="gj-sbgen-tpl-list">${templateEntries.map(renderRow).join('')}</div>
+                <button type="button" class="gj-custom-btn gj-sbgen-tpl-add" style="margin-top:6px;"><i class="fa-solid fa-plus"></i> 增加一条</button>
+                <button type="button" class="gj-custom-btn gj-sbgen-tpl-reset" style="margin-top:6px;margin-left:4px;"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+            </div>`);
+            const sync = () => {
+                templateEntries = [];
+                $editor.find('.gj-sbgen-tpl-row').each(function () {
+                    const n = $(this).find('.gj-sbgen-tpl-name').val().trim();
+                    if (!n) return;
+                    templateEntries.push({
+                        name: n,
+                        type: $(this).find('.gj-sbgen-tpl-type').val(),
+                        placeholder: $(this).find('.gj-sbgen-tpl-ph').val().trim()
+                    });
+                });
+            };
+            $editor.on('click', '.gj-sbgen-tpl-del', function () { $(this).closest('.gj-sbgen-tpl-row').remove(); });
+            $editor.find('.gj-sbgen-tpl-add').on('click', function () {
+                const idx = $editor.find('.gj-sbgen-tpl-row').length;
+                $editor.find('.gj-sbgen-tpl-list').append(renderRow({ name: '', type: 'text', placeholder: '' }, idx));
+            });
+            $editor.find('.gj-sbgen-tpl-reset').on('click', function () {
+                templateEntries = DEFAULT_TEMPLATE.map(e => ({ ...e }));
+                $editor.find('.gj-sbgen-tpl-list').html(templateEntries.map(renderRow).join(''));
+            });
+            const pop = new SillyTavern.Popup($editor, SillyTavern.POPUP_TYPE.CONFIRM, "编辑常规条目模板", { okButton: "保存", cancelButton: "取消" });
+            const ok = await pop.show();
+            if (ok) { sync(); toastr.success(`已保存 ${templateEntries.length} 条常规条目`); }
+        };
+        $tool.find('.gj-sbgen-edit-template').on('click', openTemplateEditor);
+
+        // ---- 模式 tab（生成 / 升级）----
+        $tool.find('.gj-sbgen-mode-tabs .gj-sb-source-tab').on('click', function () {
+            const mode = $(this).data('mode');
+            if (mode === 'upgrade') {
+                // 关闭本弹窗并打开现有升级工具
+                if (toolPopup && toolPopup.complete) {
+                    toolPopup.complete(SillyTavern.POPUP_RESULT.CANCELLED);
+                } else if (typeof Swal !== 'undefined') Swal.close();
+                setTimeout(() => openStatusBarTool(), 150);
+                return;
+            }
+            $tool.find('.gj-sbgen-mode-tabs .gj-sb-source-tab').removeClass('active');
+            $(this).addClass('active');
+        });
+
+        $tool.find('.gj-sbgen-config-btn').on('click', () => showApiConfigDialog());
+
+        // 状态栏工具专属引导（与开场白 tour 同构：遮罩+tooltip 全部 append 到 $tool，position:absolute）
+        const startStatusbarTour = () => {
+            const sbSteps = [
+                { selector: null, title: '欢迎使用状态栏工具',
+                  desc: '让状态栏对 AI 的格式错误有<b>容错能力</b>——单项出错只影响那一项，其他照常显示。<br><br>接下来带你过一遍界面布局。' },
+                { selector: '.gj-sbgen-mode-tabs', title: '1. 两种使用模式',
+                  desc: '<b>生成状态栏</b> — 没有状态栏？从零让 AI 生成一个。<br><b>升级现有状态栏</b> — 已有状态栏？把它改造成高容错架构，一项写错不影响其余项。' },
+                { selector: '.gj-sbgen-mat-list', title: '2. 选参考素材（生成模式）',
+                  desc: '勾选要让 AI 参考的内容：<br>· <b>角色设定</b> — 自动读取<br>· <b>开场白正文</b> — 支持多选<br>· <b>首页美化 / 世界书条目</b> — 提升风格贴合度<br>· <b>常规条目模板</b> — 可自定义 9 条默认项' },
+                { selector: '.gj-sbgen-edit-template', title: '3. 自定义条目模板',
+                  desc: '默认有 9 条常规模板（时间 / 地点 / 着装 / 关系…）。点<b>编辑</b>可增删改名，AI 会在此基础上为当前角色微调。' },
+                { selector: '.gj-sbgen-analyze-btn', title: '4. 开始生成',
+                  desc: '素材准备好后点这里：<br>① AI 出条目清单（可修改）<br>② 填写视觉风格描述（可留空）<br>③ 生成完整正则 + 世界书格式<br>④ 结果可预览、回退、一键写回角色卡' },
+                { selector: '.gj-sbgen-config-btn', title: '5. AI 配置',
+                  desc: '默认用酒馆主 API。需要切换时点 <i class="fa-solid fa-gear"></i>，填入自定义 OpenAI 兼容接口（base URL + key + model）。' },
+                { selector: '.gj-sbgen-help-btn', title: '引导完成！',
+                  desc: '如果之后需要回顾，点右上角 <i class="fa-solid fa-circle-question"></i> 打开帮助，再点<b>重新引导</b>即可再跑一遍。' }
+            ];
+
+            // 遮罩四块（同开场白 tour）
+            let sbPanels = {};
+            let sbTooltip = null;
+            let sbGlow = null;
+            let sbIdx = 0;
+
+            const sbCreatePanels = () => {
+                ['top', 'bottom', 'left', 'right'].forEach(pos => {
+                    sbPanels[pos] = $('<div class="gj-tour-panel"></div>');
+                    $tool.append(sbPanels[pos]);
+                });
+            };
+            const sbUpdatePanels = ($target) => {
+                const wEl = $tool[0];
+                const ww = wEl.offsetWidth, wh = wEl.offsetHeight;
+                if (!$target) {
+                    sbPanels.top.css({ top: 0, left: 0, width: ww, height: wh });
+                    sbPanels.bottom.css({ display: 'none' });
+                    sbPanels.left.css({ display: 'none' });
+                    sbPanels.right.css({ display: 'none' });
+                    return;
+                }
+                sbPanels.bottom.css({ display: '' }); sbPanels.left.css({ display: '' }); sbPanels.right.css({ display: '' });
+                const wRect = wEl.getBoundingClientRect();
+                const tRect = $target[0].getBoundingClientRect();
+                const pad = 6;
+                const hole = {
+                    top: Math.max(0, tRect.top - wRect.top - pad),
+                    left: Math.max(0, tRect.left - wRect.left - pad),
+                    bottom: Math.min(wh, tRect.bottom - wRect.top + pad),
+                    right: Math.min(ww, tRect.right - wRect.left + pad),
+                };
+                hole.width = hole.right - hole.left;
+                hole.height = hole.bottom - hole.top;
+                sbPanels.top.css({ top: 0, left: 0, width: ww, height: Math.max(0, hole.top) });
+                sbPanels.bottom.css({ top: hole.bottom, left: 0, width: ww, height: Math.max(0, wh - hole.bottom) });
+                sbPanels.left.css({ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height });
+                sbPanels.right.css({ top: hole.top, left: hole.right, width: Math.max(0, ww - hole.right), height: hole.height });
+            };
+            const sbAddGlow = ($target) => {
+                if (!$target) return;
+                const wRect = $tool[0].getBoundingClientRect();
+                const tRect = $target[0].getBoundingClientRect();
+                const pad = 6;
+                sbGlow = $('<div class="gj-tour-glow"></div>').css({
+                    top: tRect.top - wRect.top - pad, left: tRect.left - wRect.left - pad,
+                    width: tRect.width + pad * 2, height: tRect.height + pad * 2,
+                });
+                $tool.append(sbGlow);
+            };
+            const sbPositionTooltip = ($target) => {
+                requestAnimationFrame(() => {
+                    if (!sbTooltip || !sbTooltip[0]) return;
+                    const el = sbTooltip[0];
+                    const wRect = $tool[0].getBoundingClientRect();
+                    const tw = el.offsetWidth, th = el.offsetHeight;
+                    const ww = wRect.width, wh = wRect.height;
+                    if (!$target) {
+                        el.style.left = Math.max(10, (ww - tw) / 2) + 'px';
+                        el.style.top = Math.max(10, (wh - th) / 2) + 'px';
+                    } else {
+                        const tRect = $target[0].getBoundingClientRect();
+                        const relBottom = tRect.bottom - wRect.top;
+                        const relTop = tRect.top - wRect.top;
+                        const relCx = (tRect.left + tRect.right) / 2 - wRect.left;
+                        let left = relCx - tw / 2;
+                        let top = (relBottom + th + 16 < wh) ? relBottom + 16 : (relTop - th - 16 > 0) ? relTop - th - 16 : Math.max(10, (wh - th) / 2);
+                        el.style.left = Math.max(10, Math.min(left, ww - tw - 10)) + 'px';
+                        el.style.top = Math.max(10, Math.min(top, wh - th - 10)) + 'px';
+                    }
+                });
+            };
+            const sbCleanupVisuals = () => {
+                if (sbTooltip) { sbTooltip.remove(); sbTooltip = null; }
+                if (sbGlow) { sbGlow.remove(); sbGlow = null; }
+            };
+            const sbFinish = () => {
+                sbCleanupVisuals();
+                Object.values(sbPanels).forEach($p => $p.remove());
+                sbPanels = {};
+            };
+            const sbShowStep = (index) => {
+                sbCleanupVisuals();
+                if (index < 0 || index >= sbSteps.length) { sbFinish(); return; }
+                const step = sbSteps[index];
+                sbIdx = index;
+                setTimeout(() => {
+                    let $target = null;
+                    if (step.selector) {
+                        $target = $tool.find(step.selector).first();
+                        if (!$target.length) $target = null;
+                    }
+                    if ($target) {
+                        // 滚动容器让目标可见
+                        const scrollTop = $tool.scrollTop();
+                        const toolTop = $tool.offset().top;
+                        const targetTop = $target.offset().top;
+                        const diff = targetTop - toolTop;
+                        if (diff < 0 || diff > $tool.height() - 80) {
+                            $tool.scrollTop(scrollTop + diff - 80);
+                        }
+                    }
+                    setTimeout(() => {
+                        if (step.selector) {
+                            $target = $tool.find(step.selector).first();
+                            if (!$target.length) $target = null;
+                        }
+                        sbUpdatePanels($target);
+                        sbAddGlow($target);
+                        const isLast = index === sbSteps.length - 1;
+                        const isFirst = index === 0;
+                        const stepInfo = `${index + 1} / ${sbSteps.length}`;
+                        const actionBtns = `<button class="gj-tour-btn primary tour-next">${isLast ? '完成' : '下一步'}</button>`;
+                        sbTooltip = $(`<div class="gj-tour-tooltip"><div class="gj-tour-title">${step.title}</div><div class="gj-tour-desc">${step.desc}</div><div class="gj-tour-footer"><span class="gj-tour-step-info">${stepInfo}</span><div class="gj-tour-btns"><button class="gj-tour-btn tour-skip">跳过</button>${!isFirst ? '<button class="gj-tour-btn tour-prev">上一步</button>' : ''}${actionBtns}</div></div></div>`);
+                        sbTooltip.find('.tour-skip').on('click', sbFinish);
+                        sbTooltip.find('.tour-prev').on('click', () => sbShowStep(index - 1));
+                        sbTooltip.find('.tour-next').on('click', () => { if (isLast) sbFinish(); else sbShowStep(index + 1); });
+                        $tool.append(sbTooltip);
+                        sbPositionTooltip($target);
+                    }, 50);
+                }, 60);
+            };
+
+            sbCreatePanels();
+            sbUpdatePanels(null);
+            sbShowStep(0);
+        };
+
+        $tool.find('.gj-sbgen-help-btn').on('click', async () => {
+            const $help = $(`<div class="gj-sbgen-help-body" style="text-align:left;max-height:70vh;overflow:auto;padding:4px 8px;font-size:0.9em;line-height:1.75;">
+                <div style="background:rgba(122,154,131,0.08);border-left:3px solid #7a9a83;padding:10px 14px;border-radius:4px;margin-bottom:14px;">
+                    <b><i class="fa-solid fa-lightbulb"></i> 一句话介绍</b><br>
+                    让状态栏对 AI 的格式错误有<b>容错能力</b>：某条字段写错只影响那一项，其他照常显示。
+                </div>
+
+                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-layer-group" style="opacity:0.6;"></i> 两个功能</h4>
+                <p style="margin:4px 0;"><b>① 生成状态栏（从零开始）</b> —— 角色卡没有状态栏？AI 按当前角色卡风格一键生成。</p>
+                <p style="margin:4px 0;"><b>② 升级现有状态栏</b> —— 已有状态栏？升级成「整块文本 + JS 按行解析」架构，不再怕 AI 格式出错。</p>
+
+                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-route" style="opacity:0.6;"></i> 使用步骤（以「生成」为例）</h4>
+                <ol style="padding-left:22px;margin:4px 0;">
+                    <li><b>选素材</b>：勾选要让 AI 参考的内容（角色设定 / 开场白 / 首页美化 / 世界书条目 / 常规条目模板）。</li>
+                    <li><b>分析并生成条目建议</b>：AI 会输出一份条目清单，可以直接在编辑器里改名、增删、改类型。</li>
+                    <li><b>填视觉风格</b>：一两句话描述颜色 / 字体 / 氛围，或留空让 AI 自己决定。</li>
+                    <li><b>生成正则 + 世界书</b>：得到成品，自带样本和实时预览。</li>
+                    <li><b>一键写回角色卡</b>：直接替换原有局部正则 / 世界书条目。</li>
+                </ol>
+
+                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-circle-question" style="opacity:0.6;"></i> 为什么要这么做？</h4>
+                <p style="margin:4px 0;">常规状态栏正则用很多捕获组一一对应字段（HP、心情、好感度…），只要 AI 输出里<b>有一项</b>格式对不上（冒号错 / 用了中文符号 / 顺序变了），整条正则匹配失败，<b>整个状态栏当场消失</b>。</p>
+                <p style="margin:4px 0;">本工具改成「整块文本捕获 + JS 按行解析」：<br>· 单项错了<b>只</b>影响那一项，其他照常<br>· 以后加 / 改字段名<b>不用改正则</b>，世界书里加一行就行<br>· 内置对中英文冒号、半 / 全角空格、CRLF / LF 的容错</p>
+
+                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-gear" style="opacity:0.6;"></i> AI 从哪来？</h4>
+                <p style="margin:4px 0;">右上角 <i class="fa-solid fa-gear"></i> 按钮可配置：默认用酒馆主 API；也可填入自定义的 OpenAI 兼容接口（base URL + key + model）。</p>
+
+                <div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px dashed rgba(128,128,128,0.3);">
+                    <button type="button" class="gj-sbgen-start-tour gj-custom-btn primary" style="margin:0 auto;padding:8px 20px;"><i class="fa-solid fa-route"></i> 重新引导</button>
+                    <div style="margin-top:10px;opacity:0.5;font-size:0.82em;">by yelluws</div>
+                </div>
+            </div>`);
+            const pop = new SillyTavern.Popup($help, SillyTavern.POPUP_TYPE.TEXT, '状态栏工具 — 帮助', { okButton: '关闭' });
+            $help.find('.gj-sbgen-start-tour').on('click', () => {
+                pop.complete(SillyTavern.POPUP_RESULT.AFFIRMATIVE);
+                setTimeout(startStatusbarTour, 280);
+            });
+            await pop.show();
+        });
+
+        // ---- Phase 0 → Phase 1: 分析生成条目建议 ----
+        const buildAnalyzeMessages = () => {
+            const sections = [];
+            if (selected.persona) {
+                const p = getPersonaText();
+                if (p) sections.push('## 角色设定\n' + truncate(p, 2500));
+            }
+            if (selected.greeting) {
+                const g = getGreetingText();
+                if (g) sections.push('## 开场白（first_mes 正文）\n' + truncate(g, 2500));
+            }
+            if (selected.homepage && selected.pickedHomepageHtml) {
+                sections.push('## 首页美化 HTML（用于提取视觉风格 —— 颜色/字体/边框/纹理）\n' + truncate(selected.pickedHomepageHtml, 4000));
+            }
+            if (selected.worldbook && selected.pickedWbEntries.length) {
+                const wbText = selected.pickedWbEntries.map(e => `### ${e.name}\n${e.content}`).join('\n\n');
+                sections.push('## 世界书条目（世界观 / 剧情设定）\n' + truncate(wbText, 3500));
+            }
+            if (selected.template) {
+                const tpl = templateEntries.map(e => `- ${e.name}（${e.type}）示例：${e.placeholder}`).join('\n');
+                sections.push('## 常规条目模板（请在此基础上为当前角色增删 / 改名 / 调整类型）\n' + tpl);
+            }
+            const extraTrim = (selected.extra || '').trim();
+            if (extraTrim) sections.push('## 用户补充要求\n' + extraTrim);
+
+            const userMsg = sections.length
+                ? sections.join('\n\n')
+                : '（用户未提供任何素材，请基于通用角色扮演场景输出默认条目）';
+
+            return [
+                { role: 'system', content: AI_STATUSBAR_GEN_ANALYZE_PROMPT },
+                { role: 'user', content: userMsg }
+            ];
+        };
+
+        const parseProposal = (raw) => {
+            if (!raw) return null;
+            let txt = raw.trim();
+            const fenceMatch = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
+            if (fenceMatch) txt = fenceMatch[1];
+            txt = txt.trim();
+            // 容错：去掉起止多余文本，取第一个 { 到最后一个 }
+            const first = txt.indexOf('{'); const last = txt.lastIndexOf('}');
+            if (first >= 0 && last > first) txt = txt.substring(first, last + 1);
+            try {
+                const obj = JSON.parse(txt);
+                if (!obj || typeof obj !== 'object') return null;
+                const entries = Array.isArray(obj.entries) ? obj.entries.filter(e => e && e.name).map(e => ({
+                    name: String(e.name).trim(),
+                    type: ['text','progress','star','icon','badge'].includes(e.type) ? e.type : 'text',
+                    placeholder: e.placeholder ? String(e.placeholder) : '',
+                    min: typeof e.min === 'number' ? e.min : (e.type === 'progress' ? 0 : undefined),
+                    max: typeof e.max === 'number' ? e.max : (e.type === 'progress' ? 100 : (e.type === 'star' ? 5 : undefined)),
+                    icon: e.icon ? String(e.icon) : undefined
+                })) : [];
+                return {
+                    styleSummary: obj.styleSummary ? String(obj.styleSummary) : '',
+                    entries
+                };
+            } catch (e) {
+                console.warn('proposal JSON parse failed:', e, txt.substring(0, 200));
+                return null;
+            }
+        };
+
+        const renderEntryRows = () => {
+            const $list = $tool.find('.gj-sbgen-entry-list');
+            $list.empty();
+            proposal.entries.forEach((e, idx) => {
+                const row = $(`<div class="gj-sbgen-entry-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                    <i class="fa-solid fa-grip-vertical gj-sbgen-entry-drag" style="opacity:0.4;cursor:grab;"></i>
+                    <input type="text" class="gj-sbgen-entry-name" value="${_.escape(e.name)}" style="flex:2;min-width:0;" placeholder="条目名">
+                    <select class="gj-sbgen-entry-type" style="flex:1;min-width:0;">
+                        <option value="text" ${e.type==='text'?'selected':''}>文本</option>
+                        <option value="progress" ${e.type==='progress'?'selected':''}>进度</option>
+                        <option value="star" ${e.type==='star'?'selected':''}>星级</option>
+                        <option value="icon" ${e.type==='icon'?'selected':''}>图标</option>
+                        <option value="badge" ${e.type==='badge'?'selected':''}>标签</option>
+                    </select>
+                    <input type="text" class="gj-sbgen-entry-ph" value="${_.escape(e.placeholder||'')}" style="flex:2;min-width:0;" placeholder="示例值">
+                    <button type="button" class="gj-custom-btn gj-sbgen-entry-del" title="删除"><i class="fa-solid fa-trash"></i></button>
+                </div>`);
+                $list.append(row);
+            });
+        };
+
+        const syncProposalFromUI = () => {
+            if (!proposal) proposal = { styleSummary: '', entries: [] };
+            proposal.styleSummary = $tool.find('.gj-sbgen-style-input').val().trim();
+            proposal.entries = [];
+            $tool.find('.gj-sbgen-entry-row').each(function () {
+                const name = $(this).find('.gj-sbgen-entry-name').val().trim();
+                if (!name) return;
+                const type = $(this).find('.gj-sbgen-entry-type').val();
+                const ph = $(this).find('.gj-sbgen-entry-ph').val().trim();
+                const e = { name, type, placeholder: ph };
+                if (type === 'progress') { e.min = 0; e.max = 100; }
+                if (type === 'star') { e.min = 1; e.max = 5; }
+                proposal.entries.push(e);
+            });
+        };
+
+        $tool.on('click', '.gj-sbgen-entry-del', function () { $(this).closest('.gj-sbgen-entry-row').remove(); });
+        $tool.find('.gj-sbgen-entry-add').on('click', function () {
+            if (!proposal) proposal = { styleSummary: '', entries: [] };
+            proposal.entries.push({ name: '', type: 'text', placeholder: '' });
+            renderEntryRows();
+        });
+
+        const runAnalyze = async () => {
+            if (isGenerating) return;
+            const messages = buildAnalyzeMessages();
+            showLoading('正在分析素材并生成条目建议...');
+            const raw = await doAiCall(messages);
+            if (!raw) return;
+            const parsed = parseProposal(raw);
+            if (!parsed || !parsed.entries.length) {
+                toastr.error("AI 输出无法解析为条目 JSON，已保留默认模板");
+                proposal = { styleSummary: '', entries: templateEntries.map(e => ({ ...e })) };
+            } else {
+                proposal = parsed;
+            }
+            $tool.find('.gj-sbgen-style-input').val(proposal.styleSummary || '');
+            renderEntryRows();
+            $tool.find('.gj-sbgen-phase-mat').hide();
+            $tool.find('.gj-sbgen-phase-prop').slideDown(200);
+        };
+        $tool.find('.gj-sbgen-analyze-btn').on('click', runAnalyze);
+        $tool.find('.gj-sbgen-reanalyze').on('click', runAnalyze);
+        $tool.find('.gj-sbgen-back-mat').on('click', () => {
+            $tool.find('.gj-sbgen-phase-prop').hide();
+            $tool.find('.gj-sbgen-phase-mat').slideDown(200);
+        });
+
+        // ---- Phase 1 → Phase 2: 渲染最终 HTML ----
+        const buildRenderMessages = () => {
+            syncProposalFromUI();
+            const parts = [];
+            parts.push('## 视觉风格摘要（必须严格遵循）\n' + (proposal.styleSummary || '(未提供 —— 请根据下方素材自选合适风格)'));
+            parts.push('## 条目列表 (严格按此生成)\n' + JSON.stringify(proposal.entries, null, 2));
+            if (selected.homepage && selected.pickedHomepageHtml) {
+                parts.push('## 首页美化 HTML（作为视觉参考，请提取其配色/字体/圆角/纹理风格并应用于状态栏）\n' + truncate(selected.pickedHomepageHtml, 4000));
+            }
+            if (selected.persona) {
+                const p = getPersonaText();
+                if (p) parts.push('## 角色设定（用于确认风格基调，请勿把内容复制进 HTML）\n' + truncate(p, 1500));
+            }
+            if (selected.worldbook && selected.pickedWbEntries.length) {
+                const wbText = selected.pickedWbEntries.map(e => `### ${e.name}\n${e.content}`).join('\n\n');
+                parts.push('## 世界书条目（仅作世界观参考，请勿写死进 HTML）\n' + truncate(wbText, 2500));
+            }
+            if ((selected.extra || '').trim()) parts.push('## 用户补充要求\n' + selected.extra.trim());
+            return [
+                { role: 'system', content: AI_STATUSBAR_GEN_RENDER_PROMPT },
+                { role: 'user', content: parts.join('\n\n') }
+            ];
+        };
+
+        // ---- 版本快照栈：支持无限撤销 / 前进 / 重 roll ----
+        let versionStack = [];
+        let redoStack = [];
+        const pushSnapshot = () => {
+            versionStack.push({
+                html: currentHtml,
+                history: conversationHistory.slice(),
+                sampleData, worldBookOutput, suggestedRegex
+            });
+            redoStack = [];
+            updateHistBtnState();
+        };
+        const restoreSnapshot = (snap) => {
+            currentHtml       = snap.html;
+            conversationHistory = snap.history.slice();
+            sampleData        = snap.sampleData;
+            worldBookOutput   = snap.worldBookOutput;
+            suggestedRegex    = snap.suggestedRegex;
+            $tool.find('.gj-sbgen-html-editor').val(currentHtml ? wrapFence(currentHtml) : '');
+            $tool.find('.gj-sbgen-sample').val(sampleData || '');
+            $tool.find('.gj-sbgen-wb-editor').val(worldBookOutput || '');
+            $tool.find('.gj-sbgen-wb-section').toggle(!!worldBookOutput);
+            $tool.find('.gj-sbgen-add-wb-btn').toggle(!!worldBookOutput);
+            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + (suggestedRegex || ''));
+            updatePreview(currentHtml);
+        };
+        const updateHistBtnState = () => {
+            const canUndo = versionStack.length >= 2;
+            $tool.find('.gj-sbgen-undo-btn').prop('disabled', !canUndo);
+            const undoCount = Math.max(0, versionStack.length - 1);
+            $tool.find('.gj-sbgen-undo-btn .gj-hist-count').text(undoCount > 0 ? ` ${undoCount}` : '');
+            const canRedo = redoStack.length > 0;
+            $tool.find('.gj-sbgen-redo-btn').prop('disabled', !canRedo);
+            $tool.find('.gj-sbgen-redo-btn .gj-hist-count').text(redoStack.length > 0 ? ` ${redoStack.length}` : '');
+            const canReroll = conversationHistory.some(m => m.role === 'assistant');
+            $tool.find('.gj-sbgen-reroll-btn').prop('disabled', !canReroll);
+        };
+
+        const extractRegexFromResult = (text) => {
+            const m = text.match(/<!--\s*findRegex:\s*(.+?)\s*-->/);
+            if (m) {
+                let r = m[1].trim();
+                // 去掉起止斜线 /.../flags → 只保留 pattern 部分
+                const wrap = r.match(/^\/(.*)\/[a-z]*$/i);
+                if (wrap) r = wrap[1];
+                return r;
+            }
+            return null;
+        };
+
+        const processRenderResult = (rawResult) => {
+            let result = rawResult;
+            const foundRegex = extractRegexFromResult(result);
+            if (foundRegex) suggestedRegex = foundRegex;
+            const wbMatch = result.match(/<!--\s*WORLDBOOK_START\s*-->([\s\S]*?)<!--\s*WORLDBOOK_END\s*-->/);
+            if (wbMatch) {
+                worldBookOutput = wbMatch[1].trim();
+                $tool.find('.gj-sbgen-wb-editor').val(worldBookOutput);
+                $tool.find('.gj-sbgen-wb-section').show();
+                $tool.find('.gj-sbgen-add-wb-btn').show();
+                result = result.replace(/<!--\s*WORLDBOOK_START\s*-->[\s\S]*?<!--\s*WORLDBOOK_END\s*-->/, '').trim();
+            }
+            const sampleMatch = result.match(/<!--\s*SAMPLE_START\s*-->([\s\S]*?)<!--\s*SAMPLE_END\s*-->/);
+            if (sampleMatch) {
+                sampleData = sampleMatch[1].trim();
+                $tool.find('.gj-sbgen-sample').val(sampleData);
+                result = result.replace(/<!--\s*SAMPLE_START\s*-->[\s\S]*?<!--\s*SAMPLE_END\s*-->/, '').trim();
+            }
+            // 去掉首行的 findRegex 注释
+            result = result.replace(/^<!--\s*findRegex:[^\n]*-->\s*\n?/, '');
+            return cleanAiOutput(result);
+        };
+
+        const buildStatusPreview = (html) => {
+            let r = html;
+            if (sampleData) {
+                const clean = (sampleData || '').replace(/<\/?status>/gi, '').trim();
+                const escaped = clean.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const scriptParts = [];
+                r = r.replace(/<script[\s\S]*?<\/script>/gi, (m) => { scriptParts.push(m); return `<!--SGSCR_${scriptParts.length - 1}-->`; });
+                r = r.replace(/\$1/g, escaped);
+                for (let i = 2; i <= 9; i++) r = r.replace(new RegExp('\\$' + i, 'g'), '(样本$' + i + ')');
+                scriptParts.forEach((s, i) => { r = r.replace(`<!--SGSCR_${i}-->`, s); });
+            }
+            return r;
+        };
+
+        const updatePreview = (html) => {
+            const $prev = $tool.find('.gj-sbgen-preview');
+            $prev.empty();
+            const iframe = document.createElement('iframe');
+            iframe.sandbox = 'allow-same-origin allow-scripts';
+            iframe.style.cssText = 'width:100%;border:none;min-height:80px;border-radius:4px;background:#fff;';
+            $prev.append(iframe);
+            const previewHtml = buildStatusPreview(html);
+            setTimeout(() => {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                doc.open(); doc.write(previewHtml); doc.close();
+                const resize = () => { iframe.style.height = Math.max(80, doc.body.scrollHeight + 20) + 'px'; };
+                setTimeout(resize, 100);
+                setTimeout(resize, 500);
+            }, 50);
+        };
+
+        // 点击 / 聚焦时放大 textarea，失焦且内容为空时收起（与状态栏工具一致）
+        $tool.on('focus click', '.gj-sb-worldbook', function () { $(this).addClass('gj-sb-expanded'); });
+        $tool.on('blur', '.gj-sb-worldbook', function () { if (!$(this).val().trim()) $(this).removeClass('gj-sb-expanded'); });
+
+        $tool.find('.gj-sbgen-sample').on('input', function () {
+            sampleData = $(this).val();
+            if (currentHtml) updatePreview(currentHtml);
+        });
+        $tool.find('.gj-sbgen-html-editor').on('input', function () {
+            currentHtml = stripFence($(this).val());
+            $tool.find('.gj-sbgen-status').text('(已手动编辑)');
+            updatePreview(currentHtml);
+        });
+
+        $tool.find('.gj-sbgen-render-btn').on('click', async () => {
+            syncProposalFromUI();
+            if (!proposal || !proposal.entries.length) { toastr.warning("请至少保留一条条目"); return; }
+            conversationHistory = buildRenderMessages();
+            versionStack = [];
+            redoStack = [];
+            $tool.find('.gj-sbgen-html-editor').val('');
+            $tool.find('.gj-sbgen-preview').empty();
+            $tool.find('.gj-sbgen-phase-prop').hide();
+            $tool.find('.gj-sbgen-phase-result').slideDown(200);
+            $tool.find('.gj-sbgen-status').text('(AI 生成中...)');
+            const raw = await doAiCall(conversationHistory, { loadingText: 'AI 正在生成状态栏...' });
+            if (!raw) { $tool.find('.gj-sbgen-status').text('(失败)'); return; }
+            conversationHistory.push({ role: 'assistant', content: raw });
+            currentHtml = processRenderResult(raw);
+            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + suggestedRegex);
+            $tool.find('.gj-sbgen-html-editor').val(wrapFence(currentHtml));
+            updatePreview(currentHtml);
+            $tool.find('.gj-sbgen-status').text('(生成完毕)');
+            pushSnapshot();
+        });
+
+        $tool.find('.gj-sbgen-back-prop').on('click', () => {
+            $tool.find('.gj-sbgen-phase-result').hide();
+            $tool.find('.gj-sbgen-phase-prop').slideDown(200);
+        });
+
+        // 润色
+        const doRefine = async () => {
+            if (isGenerating) return;
+            const $ri = $tool.find('.gj-sbgen-refine');
+            const feedback = $ri.val().trim();
+            if (!feedback) return;
+            $ri.val('');
+            conversationHistory.push({ role: 'user', content: feedback });
+            $tool.find('.gj-sbgen-status').text('(AI 润色中...)');
+            $tool.find('.gj-sbgen-html-editor').val('');
+            const raw = await doAiCall(conversationHistory, { loadingText: 'AI 正在按要求润色...' });
+            if (!raw) {
+                $tool.find('.gj-sbgen-status').text('(失败)');
+                conversationHistory.pop(); // 失败则把刚才的 user 回撤，保持一致性
+                updateHistBtnState();
+                return;
+            }
+            conversationHistory.push({ role: 'assistant', content: raw });
+            currentHtml = processRenderResult(raw);
+            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + suggestedRegex);
+            $tool.find('.gj-sbgen-html-editor').val(wrapFence(currentHtml));
+            updatePreview(currentHtml);
+            $tool.find('.gj-sbgen-status').text('(润色完毕)');
+            pushSnapshot();
+        };
+        $tool.find('.gj-sbgen-refine-btn').on('click', doRefine);
+        $tool.find('.gj-sbgen-refine').on('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRefine(); } });
+
+        // 重 roll：用同一 user 指令重新生成当前版本
+        $tool.find('.gj-sbgen-reroll-btn').on('click', async () => {
+            if (isGenerating) return;
+            // 找到最后一个 assistant 的位置，截掉它（及其后可能的任何残留）以作为这次调用的 prompt
+            let lastAssistantIdx = -1;
+            for (let i = conversationHistory.length - 1; i >= 0; i--) {
+                if (conversationHistory[i].role === 'assistant') { lastAssistantIdx = i; break; }
+            }
+            if (lastAssistantIdx < 0) return;
+            const trimmed = conversationHistory.slice(0, lastAssistantIdx);
+            $tool.find('.gj-sbgen-status').text('(AI 重新生成中...)');
+            $tool.find('.gj-sbgen-html-editor').val('');
+            const raw = await doAiCall(trimmed, { loadingText: 'AI 正在重新生成当前版本...' });
+            if (!raw) { $tool.find('.gj-sbgen-status').text('(失败)'); return; }
+            conversationHistory = trimmed.slice();
+            conversationHistory.push({ role: 'assistant', content: raw });
+            currentHtml = processRenderResult(raw);
+            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + suggestedRegex);
+            $tool.find('.gj-sbgen-html-editor').val(wrapFence(currentHtml));
+            updatePreview(currentHtml);
+            $tool.find('.gj-sbgen-status').text('(重 roll 完毕)');
+            // 重 roll 视为替换当前版本：pop 旧顶 + push 新顶
+            if (versionStack.length > 0) versionStack.pop();
+            pushSnapshot();
+        });
+
+        // 撤销：回到上一版本（当前版本压入 redo 栈）
+        $tool.find('.gj-sbgen-undo-btn').on('click', () => {
+            if (versionStack.length < 2) return;
+            redoStack.push(versionStack.pop());
+            const prev = versionStack[versionStack.length - 1];
+            restoreSnapshot(prev);
+            $tool.find('.gj-sbgen-status').text('(已撤销到上一版)');
+            updateHistBtnState();
+        });
+
+        // 前进：找回被撤销的版本
+        $tool.find('.gj-sbgen-redo-btn').on('click', () => {
+            if (redoStack.length === 0) return;
+            const next = redoStack.pop();
+            versionStack.push(next);
+            restoreSnapshot(next);
+            $tool.find('.gj-sbgen-status').text('(已前进到下一版)');
+            updateHistBtnState();
+        });
+
+        // 全屏预览
+        $tool.find('.gj-sbgen-fullscreen').on('click', () => {
+            if (!currentHtml) { toastr.warning("暂无预览内容"); return; }
+            const $overlay = $(`<div class="gj-adv-fs-overlay">
+                <div class="gj-adv-fs-topbar"><span><i class="fa-solid fa-eye"></i> 全屏预览</span><button type="button" class="gj-adv-fs-close"><i class="fa-solid fa-xmark"></i> 关闭</button></div>
+            </div>`);
+            const fs = document.createElement('iframe');
+            fs.sandbox = 'allow-same-origin allow-scripts';
+            fs.className = 'gj-adv-fs-iframe';
+            $overlay.append(fs);
+            const $host = $tool.closest('.popup, [class*="popup"], dialog, .dialogue_popup');
+            if ($host.length) $host.append($overlay); else $(document.body).append($overlay);
+            setTimeout(() => {
+                const doc = fs.contentDocument || fs.contentWindow.document;
+                doc.open(); doc.write(buildStatusPreview(currentHtml)); doc.close();
+            }, 50);
+            const rm = () => { $overlay.remove(); $(document).off('keydown.gjsbgenfs'); };
+            $overlay.find('.gj-adv-fs-close').on('click', rm);
+            $(document).on('keydown.gjsbgenfs', (e) => { if (e.key === 'Escape') rm(); });
+        });
+
+        // 导出正则
+        $tool.find('.gj-sbgen-export-btn').on('click', () => {
+            const html = stripFence($tool.find('.gj-sbgen-html-editor').val());
+            if (!html) { toastr.warning("HTML 为空"); return; }
+            const json = {
+                id: "statusbar-ai-" + Date.now(),
+                scriptName: "状态栏(AI生成)",
+                findRegex: suggestedRegex || "<status>([\\s\\S]*?)</status>",
+                replaceString: '```html\n' + html + '\n```',
+                trimStrings: [],
+                placement: [2],
+                disabled: false,
+                markdownOnly: true,
+                promptOnly: false,
+                runOnEdit: true,
+                substituteRegex: 0,
+                minDepth: 0,
+                maxDepth: 0
+            };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(json, null, 2));
+            const anchor = document.createElement('a');
+            anchor.href = dataStr;
+            anchor.download = 'Regex_StatusBar_AIGen.json';
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            toastr.success("状态栏正则已下载，请在正则扩展中导入");
+        });
+
+        // 新增到世界书
+        $tool.find('.gj-sbgen-add-wb-btn').on('click', async () => {
+            const wbText = $tool.find('.gj-sbgen-wb-editor').val().trim();
+            if (!wbText) { toastr.warning("世界书内容为空"); return; }
+            const lorebookName = window.TavernHelper?.getCurrentCharPrimaryLorebook?.();
+            if (!lorebookName) { toastr.warning("当前角色未绑定主世界书"); return; }
+            if (!confirm(`确定新增一条世界书条目到「${lorebookName}」？\n名称：状态栏输出格式(AI生成)`)) return;
+            try {
+                const newEntry = {
+                    comment: '状态栏输出格式(AI生成)',
+                    key: ['status', '状态栏'],
+                    keysecondary: [],
+                    content: wbText,
+                    constant: true,
+                    selective: false,
+                    disable: false,
+                    order: 100,
+                    position: 0,
+                    depth: 4
+                };
+                if (typeof window.TavernHelper.createLorebookEntries === 'function') {
+                    await window.TavernHelper.createLorebookEntries(lorebookName, [newEntry]);
+                } else if (typeof window.TavernHelper.setLorebookEntries === 'function') {
+                    const entries = await window.TavernHelper.getLorebookEntries(lorebookName);
+                    entries.push(newEntry);
+                    await window.TavernHelper.setLorebookEntries(lorebookName, entries);
+                } else {
+                    throw new Error('TavernHelper 没有可用的创建条目方法');
+                }
+                toastr.success(`已新增世界书条目到「${lorebookName}」`);
+            } catch (e) { console.error(e); toastr.error("新增世界书失败：" + e.message); }
+        });
+
+        toolPopup = new SillyTavern.Popup($tool, SillyTavern.POPUP_TYPE.TEXT, "", { large: true, okButton: "关闭" });
+        // 首次打开自动启动引导
+        const SBGEN_TOUR_KEY = 'gj_sbgen_tour_v1';
+        if (localStorage.getItem(SBGEN_TOUR_KEY) !== 'true') {
+            localStorage.setItem(SBGEN_TOUR_KEY, 'true');
+            setTimeout(startStatusbarTour, 600);
+        }
         await toolPopup.show();
     }
 
@@ -2542,12 +4118,12 @@ RULES:
     }
 
     async function openHomeBtnDownloader() {
-        const $ui = $(`<div class="gj-homebtn-dl">
+        const $ui = $(`<div class="gj-homebtn-dl" style="text-align:left;">
             <div class="gj-adv-header-row">
                 <label class="gj-adv-label"><i class="fa-solid fa-house"></i> 回到首页按钮 - 美化正则</label>
             </div>
             <div style="font-size:0.9em;line-height:1.75;">
-                <p style="margin:0 0 6px;"><i class="fa-solid fa-circle-info" style="color:#7a9a83;"></i> 本扩展默认用<b>脚本</b>在非首页开场白底部注入「回到首页」按钮。如果想要<b>自定义按钮样式</b>或<b>让样式跟卡走</b>（别人不装扩展也能看到），请下载下面这份美化正则：</p>
+                <p style="margin:0 0 6px;"><i class="fa-solid fa-circle-info" style="color:#7a9a83;"></i> 如果想要<b>自定义按钮样式</b>并且<b>随卡片分享</b>，请下载下面这份美化正则：</p>
                 <ol style="padding-left:20px;margin:4px 0;">
                     <li>点击「<b>下载美化正则</b>」，得到 <code>Home_Button_Regex.json</code>。</li>
                     <li>（<b>可选</b>）用任意美化工具，修改里面 <code>&lt;style&gt;</code> 标签内的 CSS 来自定义按钮外观。</li>
@@ -2670,11 +4246,9 @@ RULES:
             { selector: '.gj-icon-group', title: n + '. 工具栏',
               desc: '<b>新建(+)</b> — 在末尾添加空白开场白<br><b>搜索(🔍)</b> — 打开全局查找替换面板<br><b>首页按钮(🏠)</b> — 下载「回到首页」美化正则，自定义样式后装入角色卡<br><b>帮助(?)</b> — 查看功能说明或重启引导<br><br><span style="opacity:0.6;font-size:0.85em;">搜索面板会在独立窗口打开。</span>' },
             { selector: null, title: (n + 1) + '. 回到首页',
-              desc: '切换到非首页开场白后，<br>内容消息底部会自动出现「回到首页」按钮：' + backHomeMock + '点击即可快速切回首页(开场白 #0)。<br><br>想要<b>自定义样式</b>或让按钮<b>跟随卡片分享</b>？点顶栏 <b>🏠 图标</b> 下载美化正则，改 CSS 美化后导入到角色卡的「局部正则」即可。' },
-            { selector: null, title: (n + 2) + '. 状态栏正则工具',
-              desc: '<b>高容错状态栏/b>。<br>酒馆顶部 QR 按钮「<b>状态栏工具</b>」打开。<br><br>常规状态栏正则用很多捕获组一一对应字段（HP、心情、好感度…），<b>只要 AI 的输出里有一项格式对不上，整条正则就会匹配失败，整个状态栏都消失</b>。<br><br>本工具会把你的正则升级成<b>一整块文本 + JS 按行解析</b>的形式：<br>· 单条字段写错，<b>只</b>影响那一项，其他正常显示<br>· 以后加字段 / 改字段名，<b>不用改正则</b>，世界书里加一行就行<br>· 一键覆盖回角色卡，或下载成 JSON 备份<br><br><span style="opacity:0.6;font-size:0.85em;">来源支持：从角色卡局部正则选取 / 上传 JSON；从世界书选取 / 直接粘贴。</span>' },
+              desc: '切换到非首页开场白后，<br>内容消息底部会自动出现「回到首页」按钮：' + backHomeMock + '点击即可快速切回首页(开场白 #0)。<br><br>想要<b>自定义样式</b>并且<b>随卡片分享</b>？点顶栏 <b>🏠 图标</b> 下载美化正则，改 CSS 美化后导入到角色卡的「局部正则」即可。' },
             { selector: '.gj-icon-btn.help', title: '引导完成！',
-              desc: '现在你已了解所有核心功能！<br>如需帮助，随时点击右上角 <b>帮助(?)</b>。' }
+              desc: '现在你已了解所有核心功能！<br>如需帮助，随时点击右上角 <b>帮助(?)</b>。<br><br><span style="opacity:0.6;font-size:0.85em;">酒馆顶部还有一个「<b>状态栏工具</b>」QR 按钮，它的使用说明请在该工具页面右上角的 <i class="fa-solid fa-circle-question"></i> 里查看。</span>' }
         ];
 
         let steps = [];
@@ -2881,7 +4455,7 @@ RULES:
             <hr class="gj-help-divider">
             <div class="gj-help-section"><h3><i class="fa-solid fa-wand-magic-sparkles"></i> 融合美化（AI）</h3><p>在「生成跳转正则」中选择<b>融合美化</b>后会打开独立面板，把已有的美化 HTML + 我们的跳转逻辑交给 AI 融合，之后无需手动维护正则中的条目列表。</p><p>HTML 来源支持二选一（默认<b>从角色卡局部正则导入</b>，也可切到<b>粘贴 HTML</b>）。融合完成后可一键<b>覆盖原局部正则</b>，改动保留在角色卡内，跟卡片一起分享。</p></div>
             <hr class="gj-help-divider">
-            <div class="gj-help-section"><h3><i class="fa-solid fa-chart-column"></i> 高容错的状态栏正则工具</h3><p>酒馆顶部 QR 按钮「<b>状态栏工具</b>」打开。核心作用：<b>让状态栏对 AI 的格式错误有容错能力</b>。</p><p><b>为什么旧状态栏容易"掉"？</b> 常规状态栏用很多捕获组一一对应字段（HP、心情、好感度…），只要 AI 输出里有<b>任意一项</b>格式对不上（缺少冒号、用了中文符号、字段顺序变了），整条正则就匹配失败，<b>整个状态栏当场消失</b>。</p><p><b>本工具怎么解决：</b> 把正则升级成「<b>整块文本捕获 + JS 按行解析</b>」架构：<br>· 某条字段格式错了，<b>只</b>影响那一项，其他字段照常显示<br>· 之后加/改字段名，<b>不用改正则</b>，世界书里加一行就行<br>· 解析器内置对<b>中英文冒号、半/全角空格、CRLF/LF</b> 的容错</p><p>正则来源二选一（默认<b>从角色卡局部正则选取</b>，也可切到<b>上传 .json 文件</b>）；世界书来源二选一（默认<b>从世界书选取</b>，也可切到<b>粘贴</b>）。生成结果自带示例样本和实时预览，「覆盖原局部正则 / 世界书」可一键写回角色卡。</p></div>
+            <div class="gj-help-section"><h3><i class="fa-solid fa-chart-column"></i> 状态栏工具</h3><p>酒馆顶部 QR 按钮「<b>状态栏工具</b>」打开。<b>详细使用说明请在该工具页面右上角 <i class="fa-solid fa-circle-question"></i> 按钮里查看</b>，这里不再重复。</p></div>
             <hr class="gj-help-divider">
             <div class="gj-help-section"><h3><i class="fa-solid fa-magnifying-glass"></i> 搜索替换</h3><p>全局搜索所有开场白中的文本，支持单条替换、批量替换，以及跳转到全屏编辑器中精确定位。</p></div>
             <hr class="gj-help-divider">
@@ -2909,7 +4483,7 @@ RULES:
         const charId = SillyTavern.characterId; const charData = window.TavernHelper.getCharData('current'); if (!charData) { toastr.warning("请先打开一个角色聊天"); return ""; }
         let mainPopupInstance = null; const isAutoClose = localStorage.getItem(STORAGE_KEY_AUTO_CLOSE) === 'true';
         const $wrapper = $('<div class="gj-wrapper"></div>');
-        const $headerWrapper = $(`<div class="gj-header-wrapper"><div class="gj-header-row-1"><div class="gj-app-title">开场白管理 <span style="font-size:0.6em; opacity:0.5; font-weight:normal;">v8.0</span></div><div class="gj-header-right"><button type="button" class="gj-icon-btn help" title="帮助"><i class="fa-solid fa-circle-question"></i></button><div class="gj-auto-close-wrapper"><label class="gj-checkbox-label"><input type="checkbox" id="gj-auto-close-checkbox" ${isAutoClose ? 'checked' : ''}>自动关闭</label></div></div></div><div class="gj-header-row-2"><div class="gj-sort-controls"><button type="button" class="gj-sort-toggle-btn" title="进入排序模式"><i class="fa-solid fa-sort"></i> 快速排序</button><button type="button" class="gj-sort-save-btn" title="保存排序"><i class="fa-solid fa-floppy-disk"></i> 保存</button><button type="button" class="gj-sort-cancel-btn" title="取消排序"><i class="fa-solid fa-xmark"></i> 取消</button></div><div class="gj-center-tool-container"><button type="button" class="gj-top-btn directory"><i class="fa-solid fa-list-ol"></i> 目录工具</button></div><div class="gj-icon-group"><button type="button" class="gj-icon-btn add" title="新建"><i class="fa-solid fa-plus"></i></button><button type="button" class="gj-icon-btn search" title="搜索"><i class="fa-solid fa-magnifying-glass"></i></button><button type="button" class="gj-icon-btn home-btn-style" title="回到首页按钮 - 下载美化正则"><i class="fa-solid fa-house"></i></button></div></div></div>`);
+        const $headerWrapper = $(`<div class="gj-header-wrapper"><div class="gj-header-row-1"><div class="gj-app-title">开场白管理 <span style="font-size:0.6em; opacity:0.5; font-weight:normal;">V9.0</span></div><div class="gj-header-right"><button type="button" class="gj-icon-btn help" title="帮助"><i class="fa-solid fa-circle-question"></i></button><div class="gj-auto-close-wrapper"><label class="gj-checkbox-label"><input type="checkbox" id="gj-auto-close-checkbox" ${isAutoClose ? 'checked' : ''}>自动关闭</label></div></div></div><div class="gj-header-row-2"><div class="gj-sort-controls"><button type="button" class="gj-sort-toggle-btn" title="进入排序模式"><i class="fa-solid fa-sort"></i> 快速排序</button><button type="button" class="gj-sort-save-btn" title="保存排序"><i class="fa-solid fa-floppy-disk"></i> 保存</button><button type="button" class="gj-sort-cancel-btn" title="取消排序"><i class="fa-solid fa-xmark"></i> 取消</button></div><div class="gj-center-tool-container"><button type="button" class="gj-top-btn directory"><i class="fa-solid fa-list-ol"></i> 目录工具</button></div><div class="gj-icon-group"><button type="button" class="gj-icon-btn add" title="新建"><i class="fa-solid fa-plus"></i></button><button type="button" class="gj-icon-btn search" title="搜索"><i class="fa-solid fa-magnifying-glass"></i></button><button type="button" class="gj-icon-btn home-btn-style" title="回到首页按钮 - 下载美化正则"><i class="fa-solid fa-house"></i></button></div></div></div>`);
         const $scrollArea = $('<div class="gj-scroll-area"></div>');
         const $mainFooter = $(`<div class="gj-main-footer"><button type="button" class="gj-main-close-btn"><i class="fa-solid fa-xmark"></i> 关闭窗口</button></div>`);
         $wrapper.append($headerWrapper).append($scrollArea).append($mainFooter);
@@ -3118,17 +4692,17 @@ RULES:
         if (localStorage.getItem('gj_tour_resume') || localStorage.getItem(STORAGE_KEY_TOUR) !== 'true') { setTimeout(() => startTour($wrapper, tourOpts), 600); }
     }
 
-    if (window.SillyTavern && SillyTavern.SlashCommandParser) { SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'greetings', callback: showGreetingManager, helpString: '开场白管理器' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'go-start', callback: backToStart, helpString: '回到首页' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'statusbar', callback: openStatusBarTool, helpString: '状态栏正则工具' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'home-btn-regex', callback: openHomeBtnDownloader, helpString: '回到首页按钮 - 下载美化正则' })); }
+    if (window.SillyTavern && SillyTavern.SlashCommandParser) { SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'greetings', callback: showGreetingManager, helpString: '开场白管理器' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'go-start', callback: backToStart, helpString: '回到首页' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'statusbar', callback: openStatusBarAIStudio, helpString: '状态栏工具（生成 / 升级）' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'home-btn-regex', callback: openHomeBtnDownloader, helpString: '回到首页按钮 - 下载美化正则' })); }
     if (typeof replaceScriptButtons === 'function' && typeof getButtonEvent === 'function' && typeof eventOn === 'function') {
         const BUTTON_GREETINGS = '开场白管理';
         const BUTTON_STATUSBAR = '状态栏工具';
-        // replaceScriptButtons 会用新列表覆盖掉旧注册，自动清除历史版本的"开场白切换"、"回到首页"按钮
+        // replaceScriptButtons 会用新列表覆盖掉旧注册，自动清除历史版本的"开场白切换"、"回到首页"、"状态栏 AI 工具"等按钮
         replaceScriptButtons([
             { name: BUTTON_GREETINGS, visible: true },
             { name: BUTTON_STATUSBAR, visible: true }
         ]);
         eventOn(getButtonEvent(BUTTON_GREETINGS), showGreetingManager);
-        eventOn(getButtonEvent(BUTTON_STATUSBAR), openStatusBarTool);
+        eventOn(getButtonEvent(BUTTON_STATUSBAR), openStatusBarAIStudio);
     }
 
     // =======================================================================
@@ -3269,6 +4843,6 @@ RULES:
             bgTriggerSync(false); // 世界书同步
         });
         
-        console.log('[Greeting Jumper V8.0] UI 与后台动态世界书控制器已加载完成');
+        console.log('[Greeting Jumper V9.0] UI 与后台动态世界书控制器已加载完成');
     })();
 })();
