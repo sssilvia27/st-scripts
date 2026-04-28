@@ -1192,7 +1192,6 @@ CRITICAL RULES:
         const activeProf = profiles.find(p => p.id === pref.profileId) || { name: '', endpoint: '', key: '', model: '' };
 
         const $form = $(`<div style="display:flex;flex-direction:column;gap:12px;padding:10px;color:var(--smart-theme-body-color);">
-            <div style="font-size:0.9em;opacity:0.7;line-height:1.5;">选择 AI 来源 — 配置在两个工具间共享，但每个工具可单独选择当前使用哪一份。</div>
             <div class="gj-api-mode-group" style="display:flex;flex-direction:column;gap:6px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;">
                     <input type="radio" name="gj-api-mode" value="main" ${useMain ? 'checked' : ''}>
