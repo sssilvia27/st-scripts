@@ -1,14 +1,154 @@
 //name: 开场白管理器 (含动态世界书控制)
-//description: V9.0 (Integrated)
+//description: V9.1 - 已拆分状态栏工具到独立脚本 status-bar-tool.js
 //author: Yellows & Claude & User
 
 (function() {
     const STORAGE_KEY_AUTO_CLOSE = 'gj_auto_close_setting_v1';
     const STORAGE_KEY_TOUR = 'gj_tour_completed_v1';
+    const STORAGE_KEY_CHAR_PREFS = 'gj_char_prefs_v1';
+
+    // 按角色卡记忆 UI 选择（生成工具 / 融合工具 / 状态栏升级工具）
+    // 结构： { "<charKey>": { sbgen: {...}, fusion: {...}, sbup: {...} } }
+    const charPrefStore = {
+        _read() {
+            try { return JSON.parse(localStorage.getItem(STORAGE_KEY_CHAR_PREFS) || '{}') || {}; }
+            catch (_) { return {}; }
+        },
+        _write(map) {
+            try { localStorage.setItem(STORAGE_KEY_CHAR_PREFS, JSON.stringify(map)); } catch (_) {}
+        },
+        _key() {
+            const charId = (typeof SillyTavern !== 'undefined') ? SillyTavern.characterId : null;
+            const avatar = (typeof SillyTavern !== 'undefined' && SillyTavern.characters && charId != null)
+                ? (SillyTavern.characters[charId]?.avatar || '') : '';
+            return avatar || (charId != null ? String(charId) : '');
+        },
+        get(namespace) {
+            const k = this._key(); if (!k) return null;
+            const all = this._read()[k];
+            if (!all || typeof all !== 'object') return null;
+            const v = all[namespace];
+            return (v && typeof v === 'object') ? v : null;
+        },
+        set(namespace, value) {
+            const k = this._key(); if (!k) return;
+            const map = this._read();
+            if (!map[k] || typeof map[k] !== 'object') map[k] = {};
+            if (value == null) delete map[k][namespace];
+            else map[k][namespace] = value;
+            this._write(map);
+        },
+        update(namespace, patch) {
+            if (!patch || typeof patch !== 'object') return;
+            const cur = this.get(namespace) || {};
+            this.set(namespace, { ...cur, ...patch });
+        }
+    };
     let saveTimeout = null;
     let isSortingMode = false;
     const _loreCache = { charId: null, uids: null };
     let _isSyncing = false;
+
+    // 主动选中并滚动到目标 textarea/输入框，让用户可直接 Ctrl+C
+    const selectTextareaForUser = ($source) => {
+        try {
+            const $ta = $source && $source.length ? $source : null;
+            if (!$ta) return false;
+            const el = $ta[0];
+            if (!el) return false;
+            try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+            el.focus();
+            if (typeof el.select === 'function') el.select();
+            try {
+                if (typeof el.setSelectionRange === 'function' && typeof el.value === 'string') {
+                    el.setSelectionRange(0, el.value.length);
+                }
+            } catch (_) {}
+            return true;
+        } catch (_) { return false; }
+    };
+
+    // 复制到剪贴板（带 execCommand 回退，兼容非安全上下文 / 弹窗内焦点问题）
+    // 第三个参数 $source：失败时主动把内容在该 textarea 中选中，方便用户 Ctrl+C
+    const copyTextRobust = async (text, successMsg, $source) => {
+        const okMsg = successMsg || "已复制";
+        if (!text) { toastr.warning("内容为空"); return false; }
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                toastr.success(okMsg);
+                return true;
+            }
+        } catch (_) { /* fall through to execCommand fallback */ }
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        const prevActive = document.activeElement;
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+        document.body.removeChild(ta);
+        if (prevActive && typeof prevActive.focus === 'function') {
+            try { prevActive.focus(); } catch (_) {}
+        }
+        if (ok) { toastr.success(okMsg); return true; }
+        // 失败：主动把原文本框内容全选，提示用户手动 Ctrl+C
+        if (selectTextareaForUser($source)) {
+            toastr.warning("复制失败，已为你选中内容，请按 Ctrl+C / Cmd+C 复制", '', { timeOut: 6000 });
+        } else {
+            toastr.error("复制失败，请手动选中内容后按 Ctrl+C");
+        }
+        return false;
+    };
+
+    // 自适应预览：iframe 高度紧随 body 内容（含字体加载/动画/异步渲染），不留空白也不出现滚动条
+    const autoSizePreviewIframe = (iframe) => {
+        try {
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!doc || !doc.body) return;
+            const measure = () => {
+                try {
+                    const body = doc.body;
+                    const root = doc.documentElement;
+                    if (!body) return;
+                    body.style.margin = body.style.margin || '0';
+                    const h = Math.max(
+                        body.scrollHeight, body.offsetHeight,
+                        root ? root.scrollHeight : 0, root ? root.offsetHeight : 0
+                    );
+                    if (h > 0) iframe.style.height = h + 'px';
+                } catch (_) {}
+            };
+            measure();
+            // 多次重测以覆盖字体/图片/异步脚本造成的高度变化
+            [50, 150, 350, 800, 1500].forEach(t => setTimeout(measure, t));
+            // 持续观察：内容尺寸变化时自动跟随
+            try {
+                if (typeof ResizeObserver !== 'undefined') {
+                    const ro = new ResizeObserver(measure);
+                    ro.observe(doc.body);
+                    if (doc.documentElement) ro.observe(doc.documentElement);
+                }
+            } catch (_) {}
+            try {
+                const mo = new MutationObserver(measure);
+                mo.observe(doc.body, { childList: true, subtree: true, attributes: true, characterData: true });
+            } catch (_) {}
+            try {
+                if (iframe.contentWindow && iframe.contentWindow.addEventListener) {
+                    iframe.contentWindow.addEventListener('load', measure);
+                    iframe.contentWindow.addEventListener('resize', measure);
+                }
+            } catch (_) {}
+        } catch (_) {}
+    };
 
     // --- 正则定义 ---
     // 容错：冒号可为 : 或 ：，空白可为半角空格、制表符、全角空格 \u3000
@@ -45,8 +185,12 @@
             .gj-top-btn { background: transparent; border: 1px solid var(--smart-theme-border-color-2); color: var(--smart-theme-body-color); border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 0.9em; display: flex; align-items: center; gap: 6px; transition: all 0.2s; opacity: 0.85; font-weight: bold; }
             .gj-top-btn:hover { opacity: 1; background: var(--smart-theme-border-color-1); transform: translateY(-1px); }
             .gj-top-btn i { color: #7a9a83; }
-            .gj-icon-group { display: flex; gap: 5px; margin-left: auto; }
+            .gj-icon-group { display: flex; gap: 2px; margin-left: auto; }
             .gj-icon-btn { background: transparent; border: none; color: var(--smart-theme-body-color); width: 34px; height: 34px; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0.6; font-size: 1.1em; transition: all 0.2s; }
+            @media (max-width: 600px) {
+                .gj-icon-group { gap: 0; }
+                .gj-icon-btn { width: 30px; height: 30px; font-size: 1em; }
+            }
             .gj-icon-btn:hover { background: rgba(0,0,0,0.05); opacity: 1; transform: scale(1.1); color: #7a9a83; }
             .gj-scroll-area { flex-grow: 1; overflow-y: auto; padding: 10px 8px 10px 8px; scroll-behavior: smooth; position: relative; }
             .gj-sortable-placeholder { border: 2px dashed #4caf50; background: rgba(76, 175, 80, 0.1); border-radius: 6px; margin-bottom: 12px; visibility: visible !important; height: 60px !important; }
@@ -262,7 +406,8 @@
             .gj-adv-result-header { display: flex; justify-content: space-between; align-items: center; }
             .gj-adv-result-editor { width: 100%; min-height: 200px; max-height: 45vh; resize: vertical; background: var(--smart-theme-input-bg); color: var(--smart-theme-body-color); border: 1px solid var(--smart-theme-border-color-1); border-radius: 4px; padding: 10px; font-size: 0.95em; box-sizing: border-box; outline: none; }
             .gj-adv-result-editor:focus { border-color: #7a9a83; }
-            .gj-adv-preview { border: 1px solid var(--smart-theme-border-color-1, #444); border-radius: 6px; min-height: 120px; overflow: visible; background: #fff; position: relative; }
+            .gj-adv-preview { border: 1px solid var(--smart-theme-border-color-1, #444); border-radius: 6px; min-height: 0; overflow: visible; background: #fff; position: relative; }
+            .gj-adv-preview iframe { display: block; width: 100%; border: none; background: #fff; }
             .gj-adv-preview-header { display: flex; align-items: center; justify-content: space-between; }
             .gj-adv-fullscreen-btn { background: transparent; border: none; color: var(--smart-theme-body-color); cursor: pointer; opacity: 0.5; font-size: 0.85em; padding: 2px 6px; transition: opacity 0.2s; }
             .gj-adv-fullscreen-btn:hover { opacity: 1; }
@@ -272,7 +417,11 @@
             .gj-adv-fs-close { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px 14px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: all 0.2s; }
             .gj-adv-fs-close:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.6); }
             .gj-adv-fs-iframe { flex-grow: 1; width: 100%; border: none; background: #fff; }
-            .gj-adv-refine-bar { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+            /* 润色行：历史按钮单独一行（在输入框上方）—— 无论桌面/手机都生效 */
+            .gj-adv-refine-bar { display: flex; flex-wrap: wrap; gap: 6px; row-gap: 6px; align-items: center; flex-shrink: 0; }
+            .gj-adv-refine-bar > .gj-hist-row { order: 1; flex: 0 0 100%; display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+            .gj-adv-refine-bar .gj-adv-refine-input { order: 2; }
+            .gj-adv-refine-bar .gj-adv-refine-btn { order: 3; flex-shrink: 0; }
             .gj-adv-refine-input { flex: 1 1 0; min-width: 0; background: var(--smart-theme-input-bg); color: var(--smart-theme-body-color); border: 1px solid var(--smart-theme-border-color-1); border-radius: 4px; padding: 8px 12px; font-size: 0.9em; box-sizing: border-box; outline: none; }
             .gj-adv-refine-input:focus { border-color: #7a9a83; }
             .gj-adv-refine-input::placeholder { opacity: 0.4; }
@@ -334,7 +483,7 @@
                 .gj-adv-phase { display: flex; flex-direction: column; gap: 8px; }
                 .gj-adv-input { min-height: 120px; }
                 .gj-adv-result-editor { min-height: 80px; max-height: 20vh; font-size: 0.85em; padding: 6px; }
-                .gj-adv-preview { min-height: 60px; max-height: 22vh; overflow: auto; }
+                .gj-adv-preview { min-height: 0; max-height: none; overflow: visible; }
                 .gj-adv-refine-bar { gap: 4px; overflow: hidden; }
                 .gj-adv-refine-input { padding: 6px 8px; font-size: 0.85em; }
                 .gj-adv-refine-btn { padding: 6px 10px !important; font-size: 0.85em; }
@@ -346,7 +495,7 @@
             @media (max-width: 480px) {
                 .gj-adv-beauty-container { padding: 4px; gap: 6px; }
                 .gj-adv-result-editor { min-height: 60px; max-height: 15vh; font-size: 0.8em; padding: 4px; }
-                .gj-adv-preview { min-height: 50px; max-height: 18vh; }
+                .gj-adv-preview { min-height: 0; max-height: none; overflow: visible; }
                 .gj-adv-refine-input { padding: 5px 6px; font-size: 0.8em; }
                 .gj-adv-refine-btn { padding: 5px 8px !important; font-size: 0.8em; }
                 .gj-adv-input-footer .gj-custom-btn { font-size: 0.8em; padding: 5px 8px; }
@@ -380,8 +529,10 @@
             .gj-sb-result-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; font-weight: bold; font-size: 0.95em; }
             .gj-sb-result-banner.success { background: rgba(122,154,131,0.12); border: 1px solid #7a9a83; color: #7a9a83; }
             .gj-sb-result-banner .gj-sb-suggested-regex { font-weight: normal; font-size: 0.85em; opacity: 0.7; font-family: monospace; margin-left: 4px; word-break: break-all; }
-            .gj-sb-btn-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-            .gj-sb-btn-row .gj-custom-btn { padding: 8px 16px; border-radius: 6px; font-size: 0.9em; }
+            .gj-sb-btn-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; row-gap: 6px; }
+            .gj-sb-btn-row .gj-custom-btn { padding: 7px 12px; border-radius: 6px; font-size: 0.9em; }
+            /* 紧凑按钮宽度，避免一行放不下时把返回按钮挤换行 */
+            .gj-sb-btn-row .gj-menu-wrap > .gj-custom-btn { padding: 7px 12px; }
             .gj-adv-refine-bar .gj-hist-btn { padding: 6px 10px; font-size: 0.9em; flex-shrink: 0; }
             .gj-adv-refine-bar .gj-hist-btn:disabled { opacity: 0.3; cursor: not-allowed; }
             .gj-adv-refine-bar .gj-hist-btn .gj-hist-count { font-size: 0.75em; opacity: 0.7; margin-left: 2px; }
@@ -399,10 +550,36 @@
             .gj-sbgen-entry-row input[type="text"], .gj-sbgen-entry-row select, .gj-sbgen-tpl-row input[type="text"], .gj-sbgen-tpl-row select { padding: 6px 8px; border: 1px solid var(--smart-theme-border-color-1); border-radius: 4px; background: var(--smart-theme-input-bg); color: var(--smart-theme-body-color); font-size: 0.85em; outline: none; box-sizing: border-box; }
             .gj-sbgen-entry-row input[type="text"]:focus, .gj-sbgen-entry-row select:focus, .gj-sbgen-tpl-row input[type="text"]:focus, .gj-sbgen-tpl-row select:focus { border-color: #7a9a83; }
             .gj-sbgen-entry-row .gj-custom-btn, .gj-sbgen-tpl-row .gj-custom-btn { padding: 4px 8px; font-size: 0.85em; }
-            .gj-sbgen-suggested-regex { font-weight: normal; font-size: 0.85em; opacity: 0.7; font-family: monospace; margin-left: 4px; word-break: break-all; }
+            .gj-sbgen-suggested-regex { font-weight: normal; font-size: 0.78em; opacity: 0.55; font-family: monospace; word-break: break-all; line-height: 1.3; padding-left: 22px; }
             /* 状态栏工具 - 右上角无边框图标按钮 */
             .gj-sbgen-icon-btn { background: transparent; border: none; color: var(--smart-theme-body-color); padding: 4px 7px; border-radius: 4px; cursor: pointer; font-size: 1em; opacity: 0.55; transition: opacity 0.2s; }
             .gj-sbgen-icon-btn:hover { opacity: 1; color: #7a9a83; }
+            /* 选中后的素材卡片 —— 替换原选取框 */
+            .gj-picked-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; border: 2px solid #7a9a83; background: rgba(122,154,131,0.08); color: var(--smart-theme-body-color); }
+            .gj-picked-card .gj-pc-icon { font-size: 1.6em; color: #7a9a83; flex-shrink: 0; }
+            .gj-picked-card .gj-pc-info { flex: 1; min-width: 0; text-align: left; }
+            .gj-picked-card .gj-pc-name { font-weight: bold; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .gj-picked-card .gj-pc-detail { font-size: 0.8em; opacity: 0.6; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .gj-picked-card .gj-pc-remove { background: none; border: none; color: var(--smart-theme-body-color); opacity: 0.4; cursor: pointer; padding: 4px 8px; font-size: 1.1em; }
+            .gj-picked-card .gj-pc-remove:hover { opacity: 0.9; color: #e74c3c; }
+            /* mat-item 在已选取状态下的内嵌卡片样式 */
+            .gj-sbgen-mat-item.gj-mat-picked { border-color: #7a9a83; background: rgba(122,154,131,0.08); }
+            .gj-sbgen-mat-item.gj-mat-picked .gj-sbgen-mat-hint { color: #7a9a83; opacity: 0.95; font-weight: 500; }
+            .gj-sbgen-mat-clear { background: transparent; border: 1px solid var(--smart-theme-border-color-2); color: var(--smart-theme-body-color); border-radius: 4px; cursor: pointer; padding: 6px 8px; font-size: 0.9em; opacity: 0.55; flex-shrink: 0; transition: all 0.15s; }
+            .gj-sbgen-mat-clear:hover { opacity: 1; color: #e74c3c; border-color: #e74c3c; }
+            /* 下拉菜单（手机端聚合按钮用） */
+            .gj-menu-wrap { position: relative; display: inline-flex; }
+            .gj-menu-pop { position: absolute; bottom: calc(100% + 6px); right: 0; min-width: 160px; background: var(--smart-theme-content-bg, #fff); border: 1px solid var(--smart-theme-border-color-1); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.18); z-index: 50; overflow: hidden; }
+            .gj-menu-item { display: flex; align-items: center; gap: 8px; padding: 9px 14px; cursor: pointer; font-size: 0.9em; color: var(--smart-theme-body-color); border: none; background: transparent; width: 100%; text-align: left; }
+            .gj-menu-item:hover { background: rgba(122,154,131,0.12); color: #7a9a83; }
+            .gj-menu-item:disabled { opacity: 0.35; cursor: not-allowed; }
+            .gj-menu-item:disabled:hover { background: transparent; color: var(--smart-theme-body-color); }
+            .gj-menu-item i { width: 14px; text-align: center; opacity: 0.7; }
+            .gj-menu-item.danger:hover { background: rgba(231,76,60,0.12); color: #e74c3c; }
+            .gj-menu-item.warn { color: #d97706; }
+            .gj-menu-item.warn:hover { background: rgba(245,158,11,0.12); }
+            /* 视觉隐藏的"影子按钮"：保留 jQuery .show()/.hide() 与 :visible 状态读取（必须有尺寸，所以用 left:-9999px 移出视口而非 width:0） */
+            .gj-shadow-btn { position: absolute !important; left: -9999px !important; top: -9999px !important; opacity: 0 !important; pointer-events: none !important; }
             /* 状态栏工具 - 引导 tour 样式（与开场白 tour 同构：absolute 挂在容器内） */
             @media (max-width: 600px) {
                 .gj-sbgen-mat-item { padding: 8px 10px; gap: 8px; }
@@ -410,6 +587,23 @@
                 .gj-sbgen-mat-hint { font-size: 0.75em; }
                 .gj-sbgen-entry-row { flex-wrap: wrap; }
                 .gj-sbgen-entry-row input[type="text"], .gj-sbgen-entry-row select { flex: 1 1 45% !important; }
+            }
+            /* 桌面端：默认隐藏移动端专用文本 */
+            .gj-btn-text-mobile { display: none; }
+            .gj-btn-text-desktop { display: inline; }
+            /* 手机端：底部按钮聚合 */
+            @media (max-width: 600px) {
+                .gj-sb-btn-row { gap: 6px; flex-wrap: wrap; }
+                .gj-sb-btn-row .gj-custom-btn { padding: 8px 12px; font-size: 0.85em; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+                .gj-sb-btn-row .gj-menu-wrap { flex: 1 1 auto; }
+                .gj-sb-btn-row .gj-menu-wrap > .gj-custom-btn { width: 100%; }
+                .gj-sb-btn-row .gj-menu-pop { right: 0; left: auto; min-width: 180px; }
+                /* 移动端：紧凑按钮只显示图标 */
+                .gj-btn-icon-on-mobile .gj-btn-text { display: none; }
+                .gj-btn-icon-on-mobile { padding: 8px 10px !important; }
+                /* 移动端：切换桌面/手机端文本（用于精简按钮文字） */
+                .gj-btn-text-desktop { display: none; }
+                .gj-btn-text-mobile { display: inline; }
             }
         </style>
     `);
@@ -641,153 +835,73 @@ CRITICAL RULES:
 11. Do NOT add any explanation, commentary, or markdown. Output ONLY the raw HTML.
 12. The outermost containers (html, body) MUST have margin:0 and padding:0. No extra whitespace around the content. The page should fill width with no unnecessary outer spacing.`;
 
-    const AI_STATUSBAR_SYSTEM_PROMPT = `You are an HTML/CSS beautification specialist for SillyTavern regex status panels.
 
-The user will give you an HTML template used as a regex replaceString in SillyTavern. This HTML renders a character status panel (HP, mood, location, affection, etc.) using data captured by a regex from AI responses.
+    // ============================================================
+    // === AI 配置预设库（profile 系统） ===
+    //   - profile 列表跨工具共享（gj_ai_profiles_v1），配一次到处用
+    //   - 当前工具用哪一份是独立的（gj_ai_pref_<tool>），所以两个工具可以选不同 API
+    //   - 一次性迁移：旧版 gj_ai_config 自动存为「默认配置」
+    // ============================================================
+    const AI_PROFILES_KEY = 'gj_ai_profiles_v1';
+    const AI_PREF_KEY     = 'gj_ai_pref_greeting'; // 仅本工具用
 
-Your task: BEAUTIFY the visual presentation of this HTML while preserving all functional logic.
-
-CRITICAL RULES:
-1. PRESERVE every $1, $2, $3, ... regex capture group reference EXACTLY as-is. These are filled at runtime by the regex engine. Do NOT rename, reorder, remove, or wrap them in a way that changes their meaning.
-2. PRESERVE ALL existing JavaScript code EXACTLY. Do NOT remove, rename, refactor, or move any function or variable. If a script parses $1 data, keep that logic intact.
-3. PRESERVE ALL <template> tags and their content.
-4. You MAY freely modify: CSS styles, colors, fonts, layout, spacing, borders, backgrounds, shadows, animations, gradients, icons, and decorative elements.
-5. You MAY restructure HTML elements for better layout (e.g. flexbox, grid) as long as the same data ($1, $2, ...) is displayed.
-6. Ensure the design works well in both light and dark themes — use semi-transparent backgrounds and relative colors where possible.
-7. Ensure mobile-friendly responsive design.
-8. Output a COMPLETE standalone HTML document.
-9. Do NOT wrap output in markdown fences. Output ONLY the raw HTML.
-10. Do NOT add explanation or commentary.
-11. The outermost containers (html, body) MUST have margin:0 and padding:0. No extra whitespace around the panel. The status panel should fill width with no unnecessary outer spacing.`;
-
-    const AI_STATUSBAR_UPGRADE_PROMPT = `Upgrade a SillyTavern regex status bar from multi-capture-group ($1,$2,$3...) to single $1 + JS parsing.
-
-CONVERSION: Old regex has many groups (e.g. HP:(\\d+).*?心情:(\\w+)) with HTML using $1,$2,$3 directly. New regex captures ALL text in one group (e.g. <status>([\\s\\S]*?)<\\/status>), HTML has hidden div with $1 and a script that parses key:value pairs.
-
-NEW HTML STRUCTURE:
-- Hidden div: <div id="sb-raw-ID" style="display:none">$1</div> (ID = random suffix)
-- Visible panel: <div id="sb-panel-ID"></div>
-- IIFE script: read hidden div textContent, split by /\\r?\\n/, parse each line with a TOLERANT regex, build key-value map, render all fields into panel. Render unknown fields too.
-
-MANDATORY TOLERANT PARSING REGEX (copy this shape exactly):
-  /^[\\s\\u3000]*(.+?)[\\s\\u3000]*[:：][\\s\\u3000]*(.+?)[\\s\\u3000]*$/
-Rules the parser MUST handle:
-- Both English colon (:) and Chinese colon (：).
-- Leading/trailing half-width spaces, tabs AND full-width spaces (\\u3000) on both key and value.
-- Both LF (\\n) and CRLF (\\r\\n) line endings.
-- Blank lines must be skipped.
-- Key comparison should be whitespace-normalized (replace /[\\s\\u3000]+/g with a single space, then trim, then compare) so "HP ", " HP", "HP\\u3000" all match "HP".
-- Value keeps original internal spacing but is trimmed on both ends.
-
-OUTPUT FORMAT:
-Line 1: <!-- findRegex: /pattern/flags -->
-Then: A COMPLETE standalone HTML document starting with <!DOCTYPE html>, including <html>, <head> with <meta charset="UTF-8">, <style>, </head>, <body>, inline JS, </body>, </html>. No markdown fences, no explanation.
-If world book provided, append: <!-- WORLDBOOK_START -->...<!-- WORLDBOOK_END -->
-ALWAYS append sample data block at the very end:
-<!-- SAMPLE_START -->
-(realistic example values matching the new key:value format, one per line, using the ACTUAL field names from the original regex/world book with plausible values, e.g.:
-HP:85/100
-心情:愉悦
-好感度:72
-外观:穿着白色连衣裙)
-<!-- SAMPLE_END -->
-
-SAMPLE DATA RULES:
-- Use the EXACT field names (keys) from the original regex capture groups or world book definition.
-- Generate realistic, varied values — NOT generic placeholders like "示例" or "正常". Use concrete numbers, descriptive text, specific states.
-- The sample should look like what a real AI character response would output inside <status> tags.
-- Number fields: use realistic numbers (not just 50 or 100).
-- Text fields: use vivid, descriptive values that make sense for the field name.
-- Format: one key:value pair per line, no extra markup.
-
-RULES:
-- $1 is the ONLY data source. Preserve ALL original fields.
-- Modern design, dark/light theme compatible (semi-transparent bg), responsive.
-- Keep original visual structure where possible.
-- Use IIFE, unique IDs to avoid conflicts.
-- The outermost container (html, body and root wrapper) MUST have margin:0 and padding:0. No extra whitespace around the panel. The status panel should fill the width with no unnecessary outer spacing.
-- World book should use new tag format with key:value per line.`;
-
-    // Phase 2.1: 分析素材 → 条目建议 + 风格摘要
-    const AI_STATUSBAR_GEN_ANALYZE_PROMPT = `You are a SillyTavern status bar designer. Given character card materials, output a JSON that proposes:
-1) styleSummary — a 2-3 sentence visual brief tailored to the work (palette, typography mood, layout/texture hints).
-2) entries — an array of status bar fields that fit the character and story.
-
-OUTPUT FORMAT:
-Return ONLY a valid JSON object wrapped in a \`\`\`json fence. No prose outside the fence.
-
-JSON SCHEMA:
-{
-  "styleSummary": "string — short visual brief (colors, fonts, mood, layout)",
-  "entries": [
-    { "name": "string", "type": "text"|"progress"|"star"|"icon"|"badge", "placeholder": "string", "min"?: number, "max"?: number, "icon"?: "string (fa-xxx or emoji)", "note"?: "string" }
-  ]
-}
-
-FIELD TYPES:
-- text:     free text value (placeholder shows a realistic example)
-- progress: numeric value with min/max rendered as a bar (placeholder = example number within range)
-- star:     1-5 star rating (min:1, max:5)
-- icon:     icon + text value
-- badge:    compact colored label (state/tag)
-
-RULES:
-- Use the provided default template as the baseline. RENAME/ADAPT entries to fit the character & work vocabulary (e.g. 古风作品 → 时间→时辰, 地点→所在; 玄幻 → 增加"修为"; 职场 → "KPI"; 校园 → "班主任好感度").
-- Keep 8-12 entries total. Remove defaults that don't fit, add 1-3 work-specific ones.
-- Pick type carefully: 时间/地点/着装/动作/碎碎念 → text; 好感度/亲密度/HP/心情指数 → progress; 关系阶段 → badge; 心情/情绪 → icon (with a relevant fa icon or emoji).
-- "styleSummary" must be concrete and visually actionable, mention hex-ish colors or specific font/mood words so a front-end coder can reproduce it. Match the tone/genre from the provided materials.
-- If a "homepage beautify HTML" snippet is provided, analyze its CSS (palette, fonts, border-radius, textures) and reflect those cues in styleSummary so the status bar feels consistent with the homepage.
-- Chinese names for Chinese-language cards, English names otherwise.
-- Do NOT fabricate plot; stay grounded in the provided materials.`;
-
-    // Phase 2.2: 按风格摘要 + 条目 → 最终 HTML(单$1+JS解析) + 世界书 + 示例
-    const AI_STATUSBAR_GEN_RENDER_PROMPT = `You are a SillyTavern status bar generator. Create a BRAND NEW status bar regex template from scratch using the "single $1 capture + JS runtime parsing" architecture.
-
-INPUT you receive:
-- A "styleSummary" describing target visual style.
-- An "entries" array defining field name, type (text/progress/star/icon/badge), placeholder, min/max/icon.
-- Optional reference assets: character description, homepage beautify HTML, existing worldbook text.
-
-OUTPUT FORMAT (strictly):
-Line 1: <!-- findRegex: <status>([\\s\\S]*?)</status> -->
-Then: A COMPLETE standalone HTML document beginning with <!DOCTYPE html>, including <html>, <head> with <meta charset="UTF-8">, <style>, </head>, <body>, inline <script>, </body>, </html>. No markdown fences, no prose.
-Append: <!-- WORLDBOOK_START -->...<!-- WORLDBOOK_END --> — a world-book entry body that instructs the main AI to output <status>...</status> containing key:value lines (one per entry). The worldbook text must enumerate every entry with format hints (e.g. "好感度: 0-100 的整数"). Keep it in the SAME language as the entry names.
-Append: <!-- SAMPLE_START -->...<!-- SAMPLE_END --> — a realistic example <status> body: one key:value per line, using the EXACT entry names, with vivid values plausible for the character & story (NOT generic "示例"/"正常"). Numbers must be varied realistic numbers, not just 50/100.
-
-HTML STRUCTURE (MANDATORY):
-- Hidden raw container: <div id="sb-raw-ID" style="display:none;">$1</div>  (ID = short random suffix so multiple instances don't collide)
-- Visible panel: <div id="sb-panel-ID"></div>
-- One IIFE <script> that: reads hidden div textContent, splits by /\\r?\\n/, parses each line with the TOLERANT key:value regex below, builds a Map, then renders ALL entries into the panel according to their type. Render unknown keys too (graceful).
-
-MANDATORY TOLERANT PARSING REGEX (copy this shape exactly):
-  /^[\\s\\u3000]*(.+?)[\\s\\u3000]*[:：][\\s\\u3000]*(.+?)[\\s\\u3000]*$/
-Parser rules the script MUST handle:
-- Both English colon (:) and Chinese colon (：).
-- Leading/trailing half-width/tab/full-width (\\u3000) spaces on BOTH key and value.
-- Both LF and CRLF line endings. Skip blank lines.
-- Key lookup is whitespace-normalized (replace /[\\s\\u3000]+/g with a single space, trim, then compare), so "HP ", " HP", "HP\\u3000" all match "HP".
-- Value is trimmed on both ends but keeps internal spacing.
-- If a key is missing, render its placeholder as fallback.
-
-RENDERING RULES BY TYPE:
-- text:     plain value
-- progress: render a labeled bar; width% = clamp((value-min)/(max-min)*100, 0, 100). Display "value / max" alongside.
-- star:     render 1-5 filled/empty stars based on numeric value.
-- icon:     render the icon (fa or emoji) + value.
-- badge:    render a pill-style colored label.
-
-STYLE RULES:
-- MUST match the provided styleSummary (palette, typography mood, layout cues, border-radius, textures).
-- If a homepage-beautify HTML is provided, extract its core palette/fonts/radius and apply the SAME visual language for consistency.
-- Dark/light theme compatible (use semi-transparent backgrounds + system color vars where reasonable).
-- Responsive / works on mobile (flex/grid, no fixed wide pixels).
-- html, body, and the root wrapper MUST have margin:0; padding:0. No outer whitespace.
-- Use IIFE + unique IDs to prevent cross-instance conflicts.`;
-
-    const getAiConfig = () => {
-        try { return JSON.parse(localStorage.getItem(AI_CONFIG_KEY)) || {}; } catch { return {}; }
+    const getAiProfiles = () => {
+        try { return JSON.parse(localStorage.getItem(AI_PROFILES_KEY)) || []; }
+        catch { return []; }
     };
-    const saveAiConfig = (cfg) => localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(cfg));
+    const saveAiProfiles = (list) => {
+        try { localStorage.setItem(AI_PROFILES_KEY, JSON.stringify(list || [])); } catch (_) {}
+    };
+
+    const getToolPref = () => {
+        try { return JSON.parse(localStorage.getItem(AI_PREF_KEY)) || { useMainApi: true, profileId: '' }; }
+        catch { return { useMainApi: true, profileId: '' }; }
+    };
+    const saveToolPref = (pref) => {
+        try { localStorage.setItem(AI_PREF_KEY, JSON.stringify(pref || {})); } catch (_) {}
+    };
+
+    // 一次性迁移：把旧 gj_ai_config 升成 profile，并把当前工具指向它
+    (function migrateLegacyAiConfig() {
+        try {
+            if (localStorage.getItem(AI_PREF_KEY)) return; // 已经迁移过 / 已设置过偏好
+            const legacyRaw = localStorage.getItem(AI_CONFIG_KEY);
+            if (!legacyRaw) return;
+            const legacy = JSON.parse(legacyRaw) || {};
+            const useMain = legacy.useMainApi !== false;
+            let profileId = '';
+            const list = getAiProfiles();
+            if (legacy.endpoint || legacy.key) {
+                const dup = list.find(p => p.endpoint === legacy.endpoint && p.key === legacy.key);
+                if (dup) {
+                    profileId = dup.id;
+                } else {
+                    profileId = 'm-' + Date.now();
+                    list.push({
+                        id: profileId,
+                        name: legacy.endpoint ? `迁移配置 (${(legacy.endpoint).replace(/^https?:\/\//, '').slice(0, 24)})` : '迁移配置',
+                        endpoint: legacy.endpoint || '',
+                        key: legacy.key || '',
+                        model: legacy.model || ''
+                    });
+                    saveAiProfiles(list);
+                }
+            }
+            saveToolPref({ useMainApi: useMain, profileId });
+        } catch (_) {}
+    })();
+
+    // 给 callAI 用：返回 { useMainApi, endpoint, key, model }
+    const getAiConfig = () => {
+        const pref = getToolPref();
+        if (pref.useMainApi !== false) return { useMainApi: true, endpoint: '', key: '', model: '' };
+        const profs = getAiProfiles();
+        const prof = profs.find(p => p.id === pref.profileId) || null;
+        if (!prof) return { useMainApi: false, endpoint: '', key: '', model: '' };
+        return { useMainApi: false, endpoint: prof.endpoint || '', key: prof.key || '', model: prof.model || '' };
+    };
+    // 兼容性：保留 saveAiConfig 但仅用于一次性迁移；新代码请改 saveToolPref / saveAiProfiles
+    const saveAiConfig = (cfg) => { try { localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(cfg || {})); } catch (_) {} };
 
     const isAbortError = (e) => !!e && (e.name === 'AbortError' || /aborted|cancell?ed/i.test(String(e.message || e)));
 
@@ -1044,11 +1158,41 @@ STYLE RULES:
     };
 
     async function showApiConfigDialog() {
-        const config = getAiConfig();
-        const useMain = config.useMainApi !== false;
         const stAvailable = hasMainApi();
+        // 取最新数据（也应对其他工具弹窗刚刚改过的情况）
+        let pref = getToolPref();
+        let profiles = getAiProfiles();
+
+        const buildProfileOptions = (sel) => {
+            if (!profiles.length) return '<option value="">-- 暂无配置，点 + 新建 --</option>';
+            return profiles.map(p =>
+                `<option value="${_.escape(p.id)}"${p.id === sel ? ' selected' : ''}>${_.escape(p.name || '未命名')}</option>`
+            ).join('');
+        };
+
+        const ensureActiveProfile = () => {
+            // 进入"自定义"时如果还没选 profile，自动挑第一条；如果一条没有，自动建一条空的
+            if (!profiles.length) {
+                const id = 'p-' + Date.now();
+                profiles = [{ id, name: '默认配置 1', endpoint: '', key: '', model: '' }];
+                saveAiProfiles(profiles);
+                pref.profileId = id;
+                saveToolPref(pref);
+                return;
+            }
+            if (!profiles.some(p => p.id === pref.profileId)) {
+                pref.profileId = profiles[0].id;
+                saveToolPref(pref);
+            }
+        };
+
+        const useMain = pref.useMainApi !== false;
+        if (!useMain) ensureActiveProfile();
+
+        const activeProf = profiles.find(p => p.id === pref.profileId) || { name: '', endpoint: '', key: '', model: '' };
+
         const $form = $(`<div style="display:flex;flex-direction:column;gap:12px;padding:10px;color:var(--smart-theme-body-color);">
-            <div style="font-size:0.9em;opacity:0.7;line-height:1.5;">选择 AI 来源用于美化融合。</div>
+            <div style="font-size:0.9em;opacity:0.7;line-height:1.5;">选择 AI 来源 — 配置在两个工具间共享，但每个工具可单独选择当前使用哪一份。</div>
             <div class="gj-api-mode-group" style="display:flex;flex-direction:column;gap:6px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;">
                     <input type="radio" name="gj-api-mode" value="main" ${useMain ? 'checked' : ''}>
@@ -1056,71 +1200,161 @@ STYLE RULES:
                 </label>
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;">
                     <input type="radio" name="gj-api-mode" value="custom" ${!useMain ? 'checked' : ''}>
-                    <span>使用自定义 API</span>
+                    <span>使用已保存配置</span>
                 </label>
             </div>
             <div class="gj-custom-api-fields" style="display:flex;flex-direction:column;gap:10px;padding-left:10px;border-left:2px solid var(--smart-theme-border-color-1);${useMain ? 'opacity:0.4;pointer-events:none;' : ''}">
+                <label class="gj-adv-label">配置预设</label>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <select class="gj-adv-input gj-api-profile-select" style="min-height:auto;padding:8px;flex-grow:1;cursor:pointer;">
+                        ${buildProfileOptions(pref.profileId)}
+                    </select>
+                    <button type="button" class="gj-custom-btn gj-api-profile-add" title="新建配置" style="white-space:nowrap;padding:6px 10px;"><i class="fa-solid fa-plus"></i></button>
+                    <button type="button" class="gj-custom-btn gj-api-profile-del" title="删除当前配置" style="white-space:nowrap;padding:6px 10px;color:#d9534f;border-color:#d9534f;"><i class="fa-solid fa-trash"></i></button>
+                </div>
+                <label class="gj-adv-label">配置名</label>
+                <input class="gj-adv-input gj-api-profile-name" style="min-height:auto;padding:8px;" placeholder="例: OpenAI / Claude / DeepSeek" value="${_.escape(activeProf.name || '')}">
                 <label class="gj-adv-label">API 地址</label>
-                <input class="gj-adv-input gj-api-endpoint" style="min-height:auto;padding:8px;" placeholder="例: https://api.openai.com 或 https://api.anthropic.com" value="${_.escape(config.endpoint || '')}">
+                <input class="gj-adv-input gj-api-endpoint" style="min-height:auto;padding:8px;" placeholder="例: https://api.openai.com 或 https://api.anthropic.com" value="${_.escape(activeProf.endpoint || '')}">
                 <label class="gj-adv-label">API Key</label>
-                <input class="gj-adv-input gj-api-key" style="min-height:auto;padding:8px;" type="password" placeholder="sk-... 或 anthropic key" value="${_.escape(config.key || '')}">
+                <input class="gj-adv-input gj-api-key" style="min-height:auto;padding:8px;" type="password" placeholder="sk-... 或 anthropic key" value="${_.escape(activeProf.key || '')}">
                 <label class="gj-adv-label">模型</label>
                 <div style="display:flex;gap:6px;align-items:center;">
                     <select class="gj-adv-input gj-api-model-select" style="min-height:auto;padding:8px;flex-grow:1;cursor:pointer;">
-                        ${config.model ? `<option value="${_.escape(config.model)}" selected>${_.escape(config.model)}</option>` : '<option value="">-- 请先加载模型列表 --</option>'}
+                        ${activeProf.model ? `<option value="${_.escape(activeProf.model)}" selected>${_.escape(activeProf.model)}</option>` : '<option value="">-- 请先加载模型列表 --</option>'}
                     </select>
                     <button type="button" class="gj-custom-btn gj-api-load-models" style="white-space:nowrap;padding:6px 12px;"><i class="fa-solid fa-rotate"></i> 加载</button>
                 </div>
                 <div class="gj-api-model-status" style="font-size:0.82em;opacity:0.5;"></div>
+                <div style="font-size:0.78em;opacity:0.6;line-height:1.5;">提示：所有字段会<b>实时保存</b>到当前选中的配置；切换/新建/删除也立刻生效。</div>
             </div>
         </div>`);
+
         const $customFields = $form.find('.gj-custom-api-fields');
-        $form.find('input[name="gj-api-mode"]').on('change', function() {
+        const $select       = $form.find('.gj-api-profile-select');
+        const $name         = $form.find('.gj-api-profile-name');
+        const $endpoint     = $form.find('.gj-api-endpoint');
+        const $key          = $form.find('.gj-api-key');
+        const $modelSel     = $form.find('.gj-api-model-select');
+        const $modelStatus  = $form.find('.gj-api-model-status');
+
+        const refreshProfileSelect = () => {
+            $select.html(buildProfileOptions(pref.profileId));
+        };
+        const loadFormFromProfile = () => {
+            const p = profiles.find(x => x.id === pref.profileId) || { name: '', endpoint: '', key: '', model: '' };
+            $name.val(p.name || '');
+            $endpoint.val(p.endpoint || '');
+            $key.val(p.key || '');
+            $modelSel.empty();
+            if (p.model) {
+                $modelSel.append(`<option value="${_.escape(p.model)}" selected>${_.escape(p.model)}</option>`);
+            } else {
+                $modelSel.append('<option value="">-- 请先加载模型列表 --</option>');
+            }
+            $modelStatus.text('');
+        };
+        const saveCurrentProfile = () => {
+            const p = profiles.find(x => x.id === pref.profileId);
+            if (!p) return;
+            p.name     = $name.val().trim() || p.name || '未命名';
+            p.endpoint = $endpoint.val().trim();
+            p.key      = $key.val().trim();
+            p.model    = $modelSel.val() || '';
+            saveAiProfiles(profiles);
+            // 名字变了 → 同步刷下拉文本
+            const $opt = $select.find(`option[value="${p.id}"]`);
+            if ($opt.length && $opt.text() !== p.name) $opt.text(p.name);
+        };
+
+        // 模式切换
+        $form.find('input[name="gj-api-mode"]').on('change', function () {
             const isCustom = $(this).val() === 'custom';
             $customFields.css({ opacity: isCustom ? 1 : 0.4, 'pointer-events': isCustom ? 'auto' : 'none' });
+            pref.useMainApi = !isCustom;
+            if (isCustom) {
+                ensureActiveProfile();
+                refreshProfileSelect();
+                loadFormFromProfile();
+            }
+            saveToolPref(pref);
         });
-        $form.find('.gj-api-load-models').on('click', async function() {
-            const endpoint = $form.find('.gj-api-endpoint').val().trim().replace(/\/+$/, '');
-            const key = $form.find('.gj-api-key').val().trim();
-            const $status = $form.find('.gj-api-model-status');
-            const $select = $form.find('.gj-api-model-select');
-            if (!endpoint || !key) { toastr.warning("请先填写 API 地址和 Key"); return; }
-            $status.text('正在加载模型列表...').css('opacity', '0.8');
+
+        // 切换 profile
+        $select.on('change', function () {
+            pref.profileId = $(this).val();
+            saveToolPref(pref);
+            loadFormFromProfile();
+        });
+
+        // 新建
+        $form.find('.gj-api-profile-add').on('click', function (e) {
+            e.preventDefault();
+            const id = 'p-' + Date.now();
+            profiles.push({ id, name: '新配置 ' + (profiles.length + 1), endpoint: '', key: '', model: '' });
+            saveAiProfiles(profiles);
+            pref.profileId = id; saveToolPref(pref);
+            refreshProfileSelect(); loadFormFromProfile();
+            setTimeout(() => $name.focus().select(), 30);
+        });
+
+        // 删除
+        $form.find('.gj-api-profile-del').on('click', function (e) {
+            e.preventDefault();
+            if (!profiles.length) return;
+            if (!confirm(`确定删除配置「${profiles.find(p => p.id === pref.profileId)?.name || ''}」？`)) return;
+            profiles = profiles.filter(p => p.id !== pref.profileId);
+            saveAiProfiles(profiles);
+            pref.profileId = profiles[0]?.id || '';
+            saveToolPref(pref);
+            refreshProfileSelect(); loadFormFromProfile();
+            toastr.success('已删除配置');
+        });
+
+        // 实时保存：name / endpoint / key 改动后即写盘
+        $name.on('input', saveCurrentProfile);
+        $endpoint.on('input', saveCurrentProfile);
+        $key.on('input', saveCurrentProfile);
+        $modelSel.on('change', saveCurrentProfile);
+
+        // 加载模型列表
+        $form.find('.gj-api-load-models').on('click', async function () {
+            const endpoint = $endpoint.val().trim().replace(/\/+$/, '');
+            const key = $key.val().trim();
+            if (!endpoint || !key) { toastr.warning('请先填写 API 地址和 Key'); return; }
+            $modelStatus.text('正在加载模型列表...').css('opacity', '0.8');
             $(this).prop('disabled', true);
             try {
                 const isAnthropic = /anthropic/i.test(endpoint);
                 const headers = isAnthropic
                     ? { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }
                     : { 'Authorization': 'Bearer ' + key };
-                const url = isAnthropic ? endpoint + '/v1/models' : endpoint + '/v1/models';
-                const resp = await fetch(url, { headers });
+                const resp = await fetch(endpoint + '/v1/models', { headers });
                 if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
                 const data = await resp.json();
                 const models = (data.data || data.models || []).map(m => m.id || m.name || m).filter(Boolean).sort();
-                if (models.length === 0) throw new Error('未获取到模型');
-                const currentModel = $select.val();
-                $select.empty();
+                if (!models.length) throw new Error('未获取到模型');
+                const currentModel = $modelSel.val();
+                $modelSel.empty();
                 models.forEach(m => {
                     const selected = m === currentModel ? ' selected' : '';
-                    $select.append(`<option value="${_.escape(m)}"${selected}>${_.escape(m)}</option>`);
+                    $modelSel.append(`<option value="${_.escape(m)}"${selected}>${_.escape(m)}</option>`);
                 });
-                if (currentModel && models.includes(currentModel)) $select.val(currentModel);
-                $status.text(`已加载 ${models.length} 个模型`).css('opacity', '0.6');
-                } catch (e) {
-                $status.text('加载失败: ' + e.message).css('opacity', '1; color: #d9534f');
+                if (currentModel && models.includes(currentModel)) $modelSel.val(currentModel);
+                $modelStatus.text(`已加载 ${models.length} 个模型`).css('opacity', '0.6');
+                saveCurrentProfile();
+            } catch (e) {
+                $modelStatus.text('加载失败: ' + e.message).css({ opacity: 1, color: '#d9534f' });
                 console.error('Load models error:', e);
             } finally {
                 $(this).prop('disabled', false);
             }
         });
-        const popup = new SillyTavern.Popup($form, SillyTavern.POPUP_TYPE.CONFIRM, "", { okButton: "保存", cancelButton: "取消" });
-        const result = await popup.show();
-        if (result === SillyTavern.POPUP_RESULT.AFFIRMATIVE) {
-            const isMain = $form.find('input[name="gj-api-mode"]:checked').val() === 'main';
-            const model = $form.find('.gj-api-model-select').val() || '';
-            saveAiConfig({ useMainApi: isMain, endpoint: $form.find('.gj-api-endpoint').val().trim(), key: $form.find('.gj-api-key').val().trim(), model });
-            toastr.success("AI 配置已保存");
-        }
+
+        const popup = new SillyTavern.Popup($form, SillyTavern.POPUP_TYPE.TEXT, '', { okButton: '关闭' });
+        await popup.show();
+        // 关闭时再保存一次（保险）
+        if (!pref.useMainApi) saveCurrentProfile();
     }
 
     async function openAdvancedBeautifyUI() {
@@ -1130,10 +1364,41 @@ STYLE RULES:
         let isGenerating = false;
         let fusionSourceRegexIdx = null;
 
+        // 该卡的"融合美化"持久化偏好（按角色卡记忆）
+        const fusionSavedPrefs = charPrefStore.get('fusion') || {};
+        // 按关键词预选：① 已记忆的选择 → ② 名字含"首页" → ③ 名字含"开场白"
+        const autoPickFusionRegex = () => {
+            const charObj0 = SillyTavern.characters[SillyTavern.characterId];
+            const scripts = charObj0?.data?.extensions?.regex_scripts || [];
+            if (!scripts.length) return null;
+            const buildResult = (idx) => {
+                const s = scripts[idx];
+                if (!s || !s.replaceString) return null;
+                const html = s.replaceString.trim().replace(/^```(?:html)?\s*/i, '').replace(/```\s*$/, '').trim();
+                if (!html) return null;
+                return { idx, name: s.scriptName || '未命名', html };
+            };
+            const remembered = fusionSavedPrefs.regex;
+            if (remembered) {
+                let idx = -1;
+                if (remembered.name) idx = scripts.findIndex(s => (s?.scriptName || '') === remembered.name);
+                if (idx < 0 && typeof remembered.idx === 'number'
+                    && remembered.idx >= 0 && remembered.idx < scripts.length) {
+                    idx = remembered.idx;
+                }
+                const r = idx >= 0 ? buildResult(idx) : null;
+                if (r) return r;
+            }
+            let idx = scripts.findIndex(s => (s?.scriptName || '').includes('首页'));
+            if (idx < 0) idx = scripts.findIndex(s => (s?.scriptName || '').includes('开场白'));
+            return idx >= 0 ? buildResult(idx) : null;
+        };
+        const autoFusion = autoPickFusionRegex();
+
         const $ui = $(`<div class="gj-adv-beauty-container">
             <div class="gj-adv-phase gj-adv-phase-input">
                 <div class="gj-adv-header-row">
-                    <label class="gj-adv-label"><i class="fa-solid fa-paste"></i> 美化 HTML 输入</label>
+                    <label class="gj-adv-label"><i class="fa-solid fa-paste"></i> 首页美化 HTML 融合</label>
                     <button type="button" class="gj-adv-config-btn" title="AI 配置"><i class="fa-solid fa-gear"></i></button>
                 </div>
                 <div class="gj-sb-source-tabs">
@@ -1143,11 +1408,16 @@ STYLE RULES:
                 <div class="gj-sb-source-panel gj-adv-panel-regex">
                     <button type="button" class="gj-adv-from-regex-btn gj-upload-zone" style="width:100%;">
                         <i class="fa-solid fa-file-code gj-upload-icon"></i>
-                        <div class="gj-upload-main">从角色卡局部正则中提取 HTML</div>
+                        <div class="gj-upload-main">从局部正则中提取首页美化</div>
                         <div class="gj-upload-hint">点击打开选择器（推荐）</div>
                     </button>
-                    <div class="gj-adv-regex-picked-hint" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;background:rgba(122,154,131,0.1);border:1px solid #7a9a83;color:var(--smart-theme-body-color);font-size:0.85em;">
-                        <i class="fa-solid fa-circle-check" style="color:#7a9a83;"></i> 已提取：<span class="gj-adv-picked-name" style="font-weight:bold;"></span>
+                    <div class="gj-adv-regex-picked-card gj-picked-card" style="display:none;">
+                        <i class="fa-solid fa-file-code gj-pc-icon"></i>
+                        <div class="gj-pc-info">
+                            <div class="gj-pc-name">已提取：<span class="gj-adv-picked-name"></span></div>
+                            <div class="gj-pc-detail">点击右侧 × 可清除并重新选取</div>
+                        </div>
+                        <button type="button" class="gj-pc-remove gj-adv-regex-clear" title="清除并重新选取"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                 </div>
                 <div class="gj-sb-source-panel gj-adv-panel-paste" style="display:none;">
@@ -1171,10 +1441,12 @@ STYLE RULES:
                     <div class="gj-adv-preview"></div>
                 </div>
                 <div class="gj-adv-refine-bar">
+                    <div class="gj-hist-row">
+                        <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
+                        <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
+                        <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
+                    </div>
                     <input class="gj-adv-refine-input" type="text" placeholder="输入调整要求，例：把按钮改成圆角、字体改大一点...">
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-adv-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
                     <button type="button" class="gj-custom-btn primary gj-adv-refine-btn" title="发送调整指令"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
                 <div class="gj-adv-input-footer">
@@ -1248,15 +1520,13 @@ STYLE RULES:
             $prev.empty();
             const iframe = document.createElement('iframe');
             iframe.sandbox = 'allow-same-origin allow-scripts';
-            iframe.style.cssText = 'width:100%;border:none;min-height:120px;border-radius:4px;background:#fff;';
+            iframe.style.cssText = 'width:100%;border:none;border-radius:4px;background:#fff;display:block;';
             $prev.append(iframe);
             const previewHtml = buildPreviewHtml(html);
             setTimeout(() => {
                 const doc = iframe.contentDocument || iframe.contentWindow.document;
                 doc.open(); doc.write(previewHtml); doc.close();
-                const resizeIframe = () => { iframe.style.height = Math.max(120, doc.body.scrollHeight + 20) + 'px'; };
-                setTimeout(resizeIframe, 100);
-                setTimeout(resizeIframe, 500);
+                autoSizePreviewIframe(iframe);
             }, 50);
         };
 
@@ -1355,7 +1625,8 @@ STYLE RULES:
             const canRedo = redoStack.length > 0;
             $ui.find('.gj-adv-redo-btn').prop('disabled', !canRedo);
             $ui.find('.gj-adv-redo-btn .gj-hist-count').text(redoStack.length > 0 ? ` ${redoStack.length}` : '');
-            const canReroll = conversationHistory.some(m => m.role === 'assistant');
+            // 只要发出过 user 指令（无论 AI 成功/失败）就允许重 roll，方便首次失败后重试
+            const canReroll = !isGenerating && conversationHistory.some(m => m.role === 'user');
             $ui.find('.gj-adv-reroll-btn').prop('disabled', !canReroll);
         };
 
@@ -1371,6 +1642,27 @@ STYLE RULES:
             $ui.find('.gj-adv-panel-regex').toggle(src === 'regex');
             $ui.find('.gj-adv-panel-paste').toggle(src === 'paste');
         });
+
+        // 美化正则卡片 × 清除：还原选取按钮
+        $ui.find('.gj-adv-regex-clear').on('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            fusionSourceRegexIdx = null;
+            pickedRegexHtml = '';
+            $ui.find('.gj-adv-input').val('');
+            $ui.find('.gj-adv-regex-picked-card').hide();
+            $ui.find('.gj-adv-from-regex-btn').show();
+            charPrefStore.update('fusion', { regex: null });
+        });
+
+        // 应用自动预选 / 已记忆的选择
+        if (autoFusion) {
+            fusionSourceRegexIdx = autoFusion.idx;
+            pickedRegexHtml = autoFusion.html;
+            $ui.find('.gj-adv-input').val(autoFusion.html);
+            $ui.find('.gj-adv-picked-name').text(autoFusion.name);
+            $ui.find('.gj-adv-from-regex-btn').hide();
+            $ui.find('.gj-adv-regex-picked-card').show();
+        }
 
         $ui.find('.gj-adv-from-regex-btn').on('click', async () => {
             try {
@@ -1404,7 +1696,10 @@ STYLE RULES:
                         pickedRegexHtml = extracted;
                         $ui.find('.gj-adv-input').val(extracted);
                         $ui.find('.gj-adv-picked-name').text(s.scriptName || '未命名');
-                        $ui.find('.gj-adv-regex-picked-hint').show();
+                        // 选中后用卡片替换原选取按钮
+                        $ui.find('.gj-adv-from-regex-btn').hide();
+                        $ui.find('.gj-adv-regex-picked-card').show();
+                        charPrefStore.update('fusion', { regex: { idx, name: s.scriptName || '未命名' } });
                         toastr.success(`已提取「${s.scriptName || '未命名'}」的 HTML 内容`);
                     } else {
                         toastr.warning("该正则的替换内容为空");
@@ -1444,6 +1739,7 @@ STYLE RULES:
             const merged = await doAiMerge(conversationHistory, 'AI 正在融合跳转功能...');
             if (!merged) {
                 $ui.find('.gj-adv-status').text('(失败)');
+                updateHistBtnState();
                 return;
             }
 
@@ -1489,26 +1785,30 @@ STYLE RULES:
         $ui.find('.gj-adv-refine-btn').on('click', doRefine);
         $ui.find('.gj-adv-refine-input').on('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRefine(); } });
 
-        // 重 roll：用同一 user 指令重新生成当前版本
+        // 重 roll：用同一 user 指令重新生成当前版本（首次失败也可重试）
         $ui.find('.gj-adv-reroll-btn').on('click', async () => {
             if (isGenerating) return;
+            if (!conversationHistory.some(m => m.role === 'user')) return;
+            // 找到最后一个 assistant 的位置；没有则保留全部历史（含 system + user）作为重试输入
             let lastAssistantIdx = -1;
             for (let i = conversationHistory.length - 1; i >= 0; i--) {
                 if (conversationHistory[i].role === 'assistant') { lastAssistantIdx = i; break; }
             }
-            if (lastAssistantIdx < 0) return;
-            const trimmed = conversationHistory.slice(0, lastAssistantIdx);
+            const trimmed = lastAssistantIdx >= 0
+                ? conversationHistory.slice(0, lastAssistantIdx)
+                : conversationHistory.slice();
             $ui.find('.gj-adv-status').text('(AI 重新生成中...)');
             $ui.find('.gj-adv-result-editor').val('');
             const refined = await doAiMerge(trimmed, 'AI 正在重新生成当前版本...');
-            if (!refined) { $ui.find('.gj-adv-status').text('(失败)'); return; }
+            if (!refined) { $ui.find('.gj-adv-status').text('(失败)'); updateHistBtnState(); return; }
             conversationHistory = trimmed.slice();
             conversationHistory.push({ role: 'assistant', content: refined });
             currentMergedHtml = refined;
             $ui.find('.gj-adv-result-editor').val(wrapFence(refined));
             updatePreview(refined);
             $ui.find('.gj-adv-status').text('(重 roll 完毕)');
-            if (versionStack.length > 0) versionStack.pop();
+            if (fusionSourceRegexIdx !== null) $ui.find('.gj-adv-overwrite-regex-btn').show();
+            if (lastAssistantIdx >= 0 && versionStack.length > 0) versionStack.pop();
             pushSnapshot();
         });
 
@@ -1586,2004 +1886,6 @@ STYLE RULES:
         await popup.show();
     }
 
-    // --- 状态栏正则合并/升级工具 ---
-    async function openStatusBarTool() {
-        let originalJson = null;
-        let extractedHtml = '';
-        let conversationHistory = [];
-        let currentHtml = '';
-        let isGenerating = false;
-        let sampleData = '';
-        let worldBookText = '';
-        let upgraded = false;
-        let sourceRegexIdx = null;
-        let sourceWbEntry = null;
-        let versionStack = [];
-        let redoStack = [];
-
-        const stripFence = (str) => {
-            if (!str) return '';
-            let s = str.trim();
-            s = s.replace(/^```(?:html)?\s*/i, '').replace(/```\s*$/, '');
-            return s.trim();
-        };
-
-        const wrapFence = (html) => '```html\n' + html + '\n```';
-
-        const $tool = $(`<div class="gj-adv-beauty-container">
-            <div class="gj-adv-phase gj-sb-phase-upload">
-                <div class="gj-adv-header-row">
-                    <label class="gj-adv-label"><i class="fa-solid fa-arrow-up-right-dots"></i> 状态栏正则升级工具</label>
-                    <button type="button" class="gj-adv-config-btn gj-sb-config-btn" title="AI 配置"><i class="fa-solid fa-gear"></i></button>
-                </div>
-                <div class="gj-sb-source-tabs">
-                    <button type="button" class="gj-sb-source-tab active" data-source="regex"><i class="fa-solid fa-list-check"></i> 从局部正则选取</button>
-                    <button type="button" class="gj-sb-source-tab" data-source="file"><i class="fa-solid fa-cloud-arrow-up"></i> 上传 .json 文件</button>
-                </div>
-                <div class="gj-sb-source-panel gj-sb-panel-regex">
-                    <button type="button" class="gj-sb-pick-regex gj-upload-zone" style="width:100%;">
-                        <i class="fa-solid fa-list-check gj-upload-icon"></i>
-                        <div class="gj-upload-main">从角色卡局部正则中选取</div>
-                        <div class="gj-upload-hint">点击打开选择器（推荐）</div>
-                    </button>
-                </div>
-                <div class="gj-sb-source-panel gj-sb-panel-file" style="display:none;">
-                    <label class="gj-upload-zone gj-sb-drop-zone" style="margin:0;">
-                        <input type="file" accept=".json" style="display:none;" class="gj-sb-file-input">
-                        <i class="fa-solid fa-cloud-arrow-up gj-upload-icon"></i>
-                        <div class="gj-upload-main">点击或拖拽上传</div>
-                        <div class="gj-upload-hint">正则 .json 文件</div>
-                    </label>
-                </div>
-                <div class="gj-sb-file-card" style="display:none;">
-                    <i class="fa-solid fa-file-code gj-fc-icon"></i>
-                    <div class="gj-fc-info">
-                        <div class="gj-fc-name"></div>
-                        <div class="gj-fc-detail"></div>
-                    </div>
-                    <button type="button" class="gj-fc-remove" title="移除"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="gj-adv-editor-section" style="margin-top:8px;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-book"></i> 世界书内容 <span style="opacity:0.5;font-weight:normal;"></span></label>
-                    <div class="gj-sb-source-tabs gj-sb-wb-tabs">
-                        <button type="button" class="gj-sb-wb-tab active" data-source="pick"><i class="fa-solid fa-book-open"></i> 从世界书选取</button>
-                        <button type="button" class="gj-sb-wb-tab" data-source="paste"><i class="fa-solid fa-paste"></i> 粘贴</button>
-                    </div>
-                    <div class="gj-sb-wb-panel gj-sb-wb-panel-pick">
-                        <button type="button" class="gj-sb-pick-wb gj-upload-zone" style="width:100%;">
-                            <i class="fa-solid fa-book-open gj-upload-icon"></i>
-                            <div class="gj-upload-main">从角色卡世界书中选取条目</div>
-                            <div class="gj-upload-hint">点击打开选择器（推荐）</div>
-                        </button>
-                        <div class="gj-sb-wb-picked-hint" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;background:rgba(122,154,131,0.1);border:1px solid #7a9a83;color:var(--smart-theme-body-color);font-size:0.85em;">
-                            <i class="fa-solid fa-circle-check" style="color:#7a9a83;"></i> 已选取：<span class="gj-sb-wb-picked-name" style="font-weight:bold;"></span>
-                        </div>
-                    </div>
-                    <div class="gj-sb-wb-panel gj-sb-wb-panel-paste" style="display:none;">
-                        <textarea class="gj-sb-worldbook gj-sb-wb-input" rows="4" placeholder="粘贴世界书条目的内容\n通常是状态栏的输出格式定义"></textarea>
-                    </div>
-                </div>
-                <button type="button" class="gj-sb-upgrade-cta gj-sb-do-upgrade" style="margin-top:10px;" disabled>
-                    <i class="fa-solid fa-arrow-up-right-dots"></i> AI 逻辑升级
-                </button>
-            </div>
-            <div class="gj-adv-phase gj-sb-phase-result" style="display:none;">
-                <div class="gj-sb-result-banner success">
-                    <i class="fa-solid fa-circle-check"></i>
-                    <span>逻辑升级完成</span>
-                    <span class="gj-sb-suggested-regex"></span>
-                </div>
-                <div class="gj-adv-result-header" style="margin-top:8px;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-code"></i> 升级后 HTML <span class="gj-sb-status" style="opacity:0.5;font-weight:normal;font-size:0.85em;"></span></label>
-                    <button type="button" class="gj-adv-config-btn gj-sb-config-btn2" title="AI 配置"><i class="fa-solid fa-gear"></i></button>
-                </div>
-                <textarea class="gj-adv-result-editor gj-sb-html-editor" rows="8"></textarea>
-                <div class="gj-adv-editor-section">
-                    <div class="gj-adv-preview-header">
-                        <label class="gj-adv-label"><i class="fa-solid fa-eye"></i> 预览 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(填入样本数据可实时预览)</span></label>
-                        <button type="button" class="gj-adv-fullscreen-btn gj-sb-fullscreen" title="全屏预览"><i class="fa-solid fa-expand"></i> 全屏</button>
-                    </div>
-                    <div class="gj-adv-preview gj-sb-preview"></div>
-                    <textarea class="gj-sb-worldbook gj-sb-sample" rows="2" style="margin-top:4px;" placeholder="粘贴样本数据以预览（如：HP:100\n心情:开心\n好感度:80）"></textarea>
-                </div>
-                <div class="gj-adv-editor-section gj-sb-wb-section" style="margin-top:4px;display:none;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-book"></i> 升级后的世界书</label>
-                    <textarea class="gj-sb-worldbook gj-sb-wb-editor" rows="4"></textarea>
-                </div>
-                <div class="gj-adv-refine-bar" style="margin-top:6px;">
-                    <input class="gj-adv-refine-input gj-sb-refine" type="text" placeholder="输入润色 / 调整要求，例：改成深色风格、加上渐变背景...">
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sb-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sb-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sb-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
-                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn gj-sb-refine-btn" title="发送润色指令"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-                <div class="gj-sb-btn-row">
-                    <button type="button" class="gj-custom-btn gj-sb-back-btn"><i class="fa-solid fa-arrow-left"></i> 返回</button>
-                    <span style="flex:1;"></span>
-                    <button type="button" class="gj-custom-btn gj-sb-overwrite-wb-btn" style="background:#f59e0b;color:#fff;border:none;display:none;" title="覆盖原世界书条目"><i class="fa-solid fa-upload"></i> 覆盖世界书</button>
-                    <button type="button" class="gj-custom-btn gj-sb-overwrite-regex-btn" style="background:#f59e0b;color:#fff;border:none;display:none;" title="覆盖角色卡中的原局部正则"><i class="fa-solid fa-upload"></i> 覆盖局部正则</button>
-                    <button type="button" class="gj-custom-btn success gj-sb-export-btn"><i class="fa-solid fa-download"></i> 导出正则</button>
-                </div>
-            </div>
-            <div class="gj-adv-loading" style="display:none;">
-                <div class="gj-adv-spinner"></div>
-                <div class="gj-adv-loading-text">正在处理...</div>
-            </div>
-        </div>`);
-
-        const positionLoading = () => {
-            const el = $tool[0];
-            if (!el) return;
-            const r = el.getBoundingClientRect();
-            $tool.find('.gj-adv-loading').css({ position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px', inset: 'auto' });
-        };
-        const showLoading = (text) => {
-            $tool.css('overflow', 'hidden');
-            positionLoading();
-            $tool.find('.gj-adv-loading').show();
-            $tool.find('.gj-adv-loading-text').text(text || '正在处理...');
-        };
-        const hideLoading = () => {
-            $tool.find('.gj-adv-loading').hide();
-            $tool.css('overflow-y', 'auto');
-        };
-
-        const cleanAiOutput = (text) => {
-            let html = text.trim();
-            html = html.replace(/^```html\s*/i, '').replace(/```\s*$/, '');
-            html = html.replace(/^```\s*/i, '').replace(/```\s*$/, '');
-            return html.trim();
-        };
-
-        const doAiCall = async (messages, opts) => {
-            opts = opts || {};
-            const { maxRetries = 1, loadingText = '正在调用 AI...' } = opts;
-            isGenerating = true;
-            showLoading(loadingText);
-            const aiCfg = getAiConfig();
-            const useMain = aiCfg.useMainApi !== false;
-            const hasCustom = aiCfg.endpoint && aiCfg.key;
-            const hasStApi = hasMainApi();
-            if ((useMain && !hasStApi) || (!useMain && !hasCustom)) {
-                hideLoading(); isGenerating = false;
-                toastr.warning(useMain ? "主 API 不可用（未检测到 TavernHelper），请切换到自定义 API" : "请先配置自定义 API");
-                await showApiConfigDialog();
-                return null;
-            }
-            const statusReporter = (s) => { $tool.find('.gj-adv-loading-text').text(s); };
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                try {
-                    if (attempt > 0) showLoading(`正在重试 (${attempt}/${maxRetries})...`);
-                    const result = await callAI(messages, statusReporter);
-                    hideLoading(); isGenerating = false;
-                    if (!result) { toastr.error("AI 返回为空"); return null; }
-                    return cleanAiOutput(result);
-                } catch (e) {
-                    if (isAbortError(e)) { hideLoading(); isGenerating = false; return null; }
-                    const isTimeout = /504|timeout|timed?\s*out|gateway/i.test(e.message);
-                    if (isTimeout && attempt < maxRetries) {
-                        toastr.warning(`请求超时，3 秒后自动重试...`, '', { timeOut: 3000 });
-                        await new Promise(r => setTimeout(r, 3000));
-                        continue;
-                    }
-                    hideLoading(); isGenerating = false;
-                    if (isTimeout) {
-                        toastr.error("AI 请求超时。建议：1) 再试一次 2) 切换到自定义 API 3) 检查网络", "请求超时", { timeOut: 10000 });
-                    } else {
-                        toastr.error("AI 调用失败: " + e.message);
-                    }
-                    return null;
-                }
-            }
-            hideLoading(); isGenerating = false;
-            return null;
-        };
-
-        // ---- 版本快照栈：支持无限撤销 / 前进 / 重 roll ----
-        const pushSnapshot = () => {
-            versionStack.push({
-                html: currentHtml,
-                history: conversationHistory.slice(),
-                sampleData,
-                wbText: $tool.find('.gj-sb-wb-editor').val() || '',
-                wbVisible: $tool.find('.gj-sb-wb-section').is(':visible'),
-                suggestedRegex: $tool.find('.gj-sb-suggested-regex').text() || '',
-                showOverwriteRegex: $tool.find('.gj-sb-overwrite-regex-btn').is(':visible'),
-                showOverwriteWb: $tool.find('.gj-sb-overwrite-wb-btn').is(':visible')
-            });
-            redoStack = [];
-            updateHistBtnState();
-        };
-        const restoreSnapshot = (snap) => {
-            currentHtml = snap.html;
-            conversationHistory = snap.history.slice();
-            sampleData = snap.sampleData;
-            $tool.find('.gj-sb-html-editor').val(currentHtml ? wrapFence(currentHtml) : '');
-            $tool.find('.gj-sb-sample').val(sampleData || '');
-            $tool.find('.gj-sb-wb-editor').val(snap.wbText || '');
-            $tool.find('.gj-sb-wb-section').toggle(!!snap.wbVisible);
-            $tool.find('.gj-sb-suggested-regex').text(snap.suggestedRegex || '');
-            $tool.find('.gj-sb-overwrite-regex-btn').toggle(!!snap.showOverwriteRegex);
-            $tool.find('.gj-sb-overwrite-wb-btn').toggle(!!snap.showOverwriteWb);
-            updatePreview(currentHtml);
-        };
-        const updateHistBtnState = () => {
-            const canUndo = versionStack.length >= 2;
-            $tool.find('.gj-sb-undo-btn').prop('disabled', !canUndo);
-            const undoCount = Math.max(0, versionStack.length - 1);
-            $tool.find('.gj-sb-undo-btn .gj-hist-count').text(undoCount > 0 ? ` ${undoCount}` : '');
-            const canRedo = redoStack.length > 0;
-            $tool.find('.gj-sb-redo-btn').prop('disabled', !canRedo);
-            $tool.find('.gj-sb-redo-btn .gj-hist-count').text(redoStack.length > 0 ? ` ${redoStack.length}` : '');
-            const canReroll = conversationHistory.some(m => m.role === 'assistant');
-            $tool.find('.gj-sb-reroll-btn').prop('disabled', !canReroll);
-        };
-
-        const cleanSampleData = (raw) => {
-            if (!raw) return raw;
-            return raw.replace(/<\/?status>/gi, '').trim();
-        };
-
-        const buildStatusPreview = (html) => {
-            let result = html;
-            if (sampleData) {
-                const clean = cleanSampleData(sampleData);
-                const escaped = clean.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const scriptParts = [];
-                result = result.replace(/<script[\s\S]*?<\/script>/gi, (m) => {
-                    scriptParts.push(m);
-                    return `<!--SCRIPT_PLACEHOLDER_${scriptParts.length - 1}-->`;
-                });
-                result = result.replace(/\$1/g, escaped);
-                for (let i = 2; i <= 9; i++) {
-                    result = result.replace(new RegExp('\\$' + i, 'g'), '(样本$' + i + ')');
-                }
-                scriptParts.forEach((s, idx) => {
-                    result = result.replace(`<!--SCRIPT_PLACEHOLDER_${idx}-->`, s);
-                });
-            }
-            return result;
-        };
-
-        const updatePreview = (html) => {
-            const $prev = $tool.find('.gj-sb-preview');
-            $prev.empty();
-            const iframe = document.createElement('iframe');
-            iframe.sandbox = 'allow-same-origin allow-scripts';
-            iframe.style.cssText = 'width:100%;border:none;min-height:80px;border-radius:4px;background:#fff;';
-            $prev.append(iframe);
-            const previewHtml = buildStatusPreview(html);
-            setTimeout(() => {
-                const doc = iframe.contentDocument || iframe.contentWindow.document;
-                doc.open(); doc.write(previewHtml); doc.close();
-                const resize = () => { iframe.style.height = Math.max(80, doc.body.scrollHeight + 20) + 'px'; };
-                setTimeout(resize, 100);
-                setTimeout(resize, 500);
-            }, 50);
-        };
-
-        const openFullscreen = () => {
-            if (!currentHtml) { toastr.warning("暂无预览内容"); return; }
-            const $overlay = $(`<div class="gj-adv-fs-overlay">
-                <div class="gj-adv-fs-topbar"><span><i class="fa-solid fa-eye"></i> 全屏预览</span><button type="button" class="gj-adv-fs-close"><i class="fa-solid fa-xmark"></i> 关闭</button></div>
-            </div>`);
-            const fsIframe = document.createElement('iframe');
-            fsIframe.sandbox = 'allow-same-origin allow-scripts';
-            fsIframe.className = 'gj-adv-fs-iframe';
-            $overlay.append(fsIframe);
-            const $host = $tool.closest('.popup, [class*="popup"], dialog, .dialogue_popup');
-            if ($host.length) $host.append($overlay); else $(document.body).append($overlay);
-            setTimeout(() => {
-                const doc = fsIframe.contentDocument || fsIframe.contentWindow.document;
-                doc.open(); doc.write(buildStatusPreview(currentHtml)); doc.close();
-            }, 50);
-            const rm = () => { $overlay.remove(); $(document).off('keydown.gjsbfs'); };
-            $overlay.find('.gj-adv-fs-close').on('click', rm);
-            $(document).on('keydown.gjsbfs', (e) => { if (e.key === 'Escape') rm(); });
-        };
-
-        // 点击 / 聚焦时放大 textarea，失焦且内容为空时收起
-        $tool.on('focus click', '.gj-sb-worldbook', function () {
-            $(this).addClass('gj-sb-expanded');
-        });
-        $tool.on('blur', '.gj-sb-worldbook', function () {
-            if (!$(this).val().trim()) $(this).removeClass('gj-sb-expanded');
-        });
-
-        // === Phase 1: Upload + Start ===
-        $tool.find('.gj-sb-source-tab').on('click', function () {
-            const src = $(this).data('source');
-            $tool.find('.gj-sb-source-tab').removeClass('active');
-            $(this).addClass('active');
-            $tool.find('.gj-sb-panel-regex').toggle(src === 'regex');
-            $tool.find('.gj-sb-panel-file').toggle(src === 'file');
-        });
-
-        // 世界书 tab 切换：默认"从世界书选取"，可切到"粘贴"
-        $tool.find('.gj-sb-wb-tab').on('click', function () {
-            const src = $(this).data('source');
-            $tool.find('.gj-sb-wb-tab').removeClass('active');
-            $(this).addClass('active');
-            $tool.find('.gj-sb-wb-panel-pick').toggle(src === 'pick');
-            $tool.find('.gj-sb-wb-panel-paste').toggle(src === 'paste');
-        });
-
-        const $dropZone = $tool.find('.gj-sb-drop-zone');
-        const $fileInput = $tool.find('.gj-sb-file-input');
-        const $fileCard = $tool.find('.gj-sb-file-card');
-
-        $dropZone.on('dragover', (e) => { e.preventDefault(); e.stopPropagation(); $dropZone.addClass('dragover'); });
-        $dropZone.on('dragleave', (e) => { e.preventDefault(); e.stopPropagation(); $dropZone.removeClass('dragover'); });
-        $dropZone.on('drop', (e) => {
-            e.preventDefault(); e.stopPropagation(); $dropZone.removeClass('dragover');
-            const file = e.originalEvent.dataTransfer.files[0];
-            if (file) processFile(file);
-        });
-        $fileInput.on('change', function() { if (this.files[0]) processFile(this.files[0]); });
-
-        function showFileCard(json, charCount) {
-            $dropZone.hide();
-            $fileCard.find('.gj-fc-name').text(json.scriptName || '未命名脚本');
-            $fileCard.find('.gj-fc-detail').text(`findRegex: ${json.findRegex.substring(0, 50)}${json.findRegex.length > 50 ? '...' : ''} · ${charCount} 字符`);
-            $fileCard.show();
-            $tool.find('.gj-sb-do-upgrade').prop('disabled', false);
-        }
-
-        function clearFile() {
-            originalJson = null; extractedHtml = ''; currentHtml = '';
-            sourceRegexIdx = null;
-            $fileInput.val('');
-            $fileCard.hide();
-            $dropZone.show();
-            $tool.find('.gj-sb-do-upgrade').prop('disabled', true);
-        }
-
-        $fileCard.find('.gj-fc-remove').on('click', clearFile);
-
-        function loadRegexJson(json) {
-            if (!json.findRegex || !json.replaceString) {
-                toastr.error("JSON 格式不正确：缺少 findRegex 或 replaceString");
-                return false;
-            }
-            originalJson = json;
-            extractedHtml = stripFence(json.replaceString);
-            currentHtml = extractedHtml;
-            showFileCard(json, extractedHtml.length);
-            return true;
-        }
-
-        function processFile(file) {
-            if (!file.name.endsWith('.json')) { toastr.error("请上传 .json 文件"); return; }
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try { loadRegexJson(JSON.parse(e.target.result)); }
-                catch (err) { toastr.error("JSON 解析失败: " + err.message); }
-            };
-            reader.readAsText(file);
-        }
-
-        $tool.find('.gj-sb-pick-regex').on('click', async () => {
-            try {
-                const charId = SillyTavern.characterId;
-                const charObj = SillyTavern.characters?.[charId];
-                const scripts = charObj?.data?.extensions?.regex_scripts || [];
-                if (!scripts.length) { toastr.warning("当前角色卡没有绑定局部正则"); return; }
-                const items = scripts.map((s, i) => `<div class="gj-sb-regex-pick-item" data-idx="${i}" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.15);display:flex;align-items:center;gap:8px;transition:background 0.15s;">
-                    <i class="fa-solid fa-file-code" style="opacity:0.4;"></i>
-                    <div style="flex:1;min-width:0;">
-                        <div style="font-weight:bold;font-size:0.9em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(s.scriptName || '未命名')}</div>
-                        <div style="font-size:0.75em;opacity:0.5;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(s.findRegex || '').substring(0, 60)}</div>
-                    </div>
-                </div>`).join('');
-                const $pick = $(`<div style="max-height:50vh;overflow-y:auto;">${items}</div>`);
-                const pickPopup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.TEXT, "选择局部正则", { okButton: "取消" });
-                $pick.find('.gj-sb-regex-pick-item').on('click', function() {
-                    const idx = parseInt($(this).data('idx'));
-                    const s = scripts[idx];
-                    if (s) { sourceRegexIdx = idx; loadRegexJson(s); pickPopup.complete(SillyTavern.POPUP_RESULT.AFFIRMATIVE); }
-                });
-                $pick.find('.gj-sb-regex-pick-item').on('mouseenter', function() { $(this).css('background', 'rgba(122,154,131,0.1)'); }).on('mouseleave', function() { $(this).css('background', ''); });
-                await pickPopup.show();
-            } catch (e) { toastr.error("读取正则脚本失败: " + e.message); }
-        });
-
-        $tool.find('.gj-sb-pick-wb').on('click', async () => {
-            try {
-                const lorebookName = window.TavernHelper?.getCurrentCharPrimaryLorebook?.();
-                if (!lorebookName) { toastr.warning("当前角色未绑定主世界书"); return; }
-                const entries = await window.TavernHelper.getLorebookEntries(lorebookName);
-                if (!entries || !entries.length) { toastr.warning("世界书为空"); return; }
-                const items = entries.map((e, i) => {
-                    const name = e.comment || (e.key?.length ? e.key[0] : `条目 ${e.uid}`);
-                    const preview = (e.content || '').substring(0, 80).replace(/\n/g, ' ');
-                    return `<div class="gj-sb-wb-pick-item" data-idx="${i}" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.15);transition:background 0.15s;">
-                        <div style="font-weight:bold;font-size:0.9em;">${_.escape(name)} <span style="opacity:0.4;font-weight:normal;">uid:${e.uid}</span></div>
-                        <div style="font-size:0.78em;opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(preview)}</div>
-                    </div>`;
-                }).join('');
-                const $pick = $(`<div style="max-height:50vh;overflow-y:auto;">${items}</div>`);
-                const pickPopup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.TEXT, "选择世界书条目", { okButton: "取消" });
-                $pick.find('.gj-sb-wb-pick-item').on('click', function() {
-                    const idx = parseInt($(this).data('idx'));
-                    const entry = entries[idx];
-                    if (entry?.content) {
-                        sourceWbEntry = { lorebook: lorebookName, uid: entry.uid, comment: entry.comment || entry.uid };
-                        $tool.find('.gj-sb-wb-input').val(entry.content);
-                        const pickedName = entry.comment || `uid:${entry.uid}`;
-                        $tool.find('.gj-sb-wb-picked-name').text(pickedName);
-                        $tool.find('.gj-sb-wb-picked-hint').show();
-                        toastr.success(`已选择: ${pickedName}`);
-                        pickPopup.complete(SillyTavern.POPUP_RESULT.AFFIRMATIVE);
-                    }
-                });
-                $pick.find('.gj-sb-wb-pick-item').on('mouseenter', function() { $(this).css('background', 'rgba(122,154,131,0.1)'); }).on('mouseleave', function() { $(this).css('background', ''); });
-                await pickPopup.show();
-            } catch (e) { toastr.error("读取世界书失败: " + e.message); }
-        });
-
-        const extractSampleFromWb = (wb) => {
-            if (!wb) return '';
-            const lines = wb.split(/\r?\n/);
-            const samples = [];
-            const KV_TPL = /^[\s\u3000]*(.+?)[\s\u3000]*[:：][\s\u3000]*\{\{(.+?)\}\}/;
-            const KV_ANY = /^[\s\u3000]*(.+?)[\s\u3000]*[:：][\s\u3000]*(.+?)[\s\u3000]*$/;
-            for (const line of lines) {
-                if (!line || !line.trim()) continue;
-                const m = line.match(KV_TPL);
-                if (m) { samples.push(m[1].trim() + ':' + (m[2].includes('数') ? '50' : m[2].includes('状') ? '正常' : '示例')); continue; }
-                const m2 = line.match(KV_ANY);
-                if (m2 && !m2[2].includes('{') && m2[2].trim().length < 30 && !m2[0].includes('//') && !m2[0].includes('<!--')) {
-                    samples.push(m2[1].trim() + ':' + m2[2].trim());
-                }
-            }
-            return samples.join('\n');
-        };
-
-        const analyzeRegexGroups = (regexStr, html) => {
-            const groups = [];
-            let groupIdx = 0;
-            for (let i = 0; i < regexStr.length; i++) {
-                if (regexStr[i] === '\\') { i++; continue; }
-                if (regexStr[i] === '(') {
-                    if (regexStr[i+1] !== '?') {
-                        groupIdx++;
-                        let end = i + 1, d = 1;
-                        while (end < regexStr.length && d > 0) {
-                            if (regexStr[end] === '\\') { end++; }
-                            else if (regexStr[end] === '(') d++;
-                            else if (regexStr[end] === ')') d--;
-                            end++;
-                        }
-                        const pattern = regexStr.substring(i, end);
-                        const before = regexStr.substring(Math.max(0, i - 30), i);
-                        const labelMatch = before.match(/([一-龥\w]+)[：:]\s*$/);
-                        const label = labelMatch ? labelMatch[1] : null;
-                        const usedInHtml = html.includes('$' + groupIdx);
-                        groups.push({ idx: groupIdx, pattern, label, usedInHtml });
-                    }
-                }
-            }
-            return groups;
-        };
-
-        // 统一的升级结果后处理（主升级 / 润色 / 重 roll 通用）
-        const processUpgradeResult = (result, { isInitial } = {}) => {
-            let upgradedHtml = result;
-            const regexMatch = upgradedHtml.match(/<!--\s*findRegex:\s*(.+?)\s*-->/);
-            let suggestedRegex = '';
-            if (regexMatch) {
-                suggestedRegex = regexMatch[1].trim();
-                if (originalJson) originalJson._suggestedRegex = suggestedRegex;
-            }
-            const wbMatch = upgradedHtml.match(/<!--\s*WORLDBOOK_START\s*-->([\s\S]*?)<!--\s*WORLDBOOK_END\s*-->/);
-            if (wbMatch) {
-                $tool.find('.gj-sb-wb-editor').val(wbMatch[1].trim());
-                $tool.find('.gj-sb-wb-section').show();
-                if (isInitial && sourceWbEntry) $tool.find('.gj-sb-overwrite-wb-btn').show();
-                upgradedHtml = upgradedHtml.replace(/<!--\s*WORLDBOOK_START\s*-->[\s\S]*?<!--\s*WORLDBOOK_END\s*-->/, '').trim();
-            }
-            const sampleMatch = upgradedHtml.match(/<!--\s*SAMPLE_START\s*-->([\s\S]*?)<!--\s*SAMPLE_END\s*-->/);
-            if (sampleMatch) {
-                const aiSample = sampleMatch[1].trim();
-                upgradedHtml = upgradedHtml.replace(/<!--\s*SAMPLE_START\s*-->[\s\S]*?<!--\s*SAMPLE_END\s*-->/, '').trim();
-                if (aiSample) {
-                    sampleData = aiSample;
-                    $tool.find('.gj-sb-sample').val(aiSample);
-                }
-            }
-            if (isInitial && !sampleData && worldBookText) {
-                const autoSample = extractSampleFromWb(worldBookText);
-                if (autoSample) {
-                    sampleData = autoSample;
-                    $tool.find('.gj-sb-sample').val(autoSample);
-                }
-            }
-            currentHtml = upgradedHtml;
-            if (suggestedRegex) $tool.find('.gj-sb-suggested-regex').text('新正则: ' + suggestedRegex);
-            $tool.find('.gj-sb-html-editor').val(wrapFence(upgradedHtml));
-            if (isInitial && sourceRegexIdx !== null) $tool.find('.gj-sb-overwrite-regex-btn').show();
-            updatePreview(upgradedHtml);
-        };
-
-        $tool.find('.gj-sb-do-upgrade').on('click', async () => {
-            if (isGenerating || !originalJson) return;
-            worldBookText = $tool.find('.gj-sb-wb-input').val().trim();
-            const html = currentHtml;
-            if (!html) { toastr.warning("HTML 内容为空"); return; }
-            const regex = originalJson.findRegex;
-            const groups = analyzeRegexGroups(regex, html);
-            let groupAnalysis = '';
-            if (groups.length > 0) {
-                groupAnalysis = '\n\n## 原始正则捕获组分析\n';
-                groupAnalysis += `原始 findRegex 共有 ${groups.length} 个捕获组:\n`;
-                groups.forEach(g => {
-                    const label = g.label ? `字段名 "${g.label}"` : '(未识别字段名)';
-                    const used = g.usedInHtml ? '在 HTML 中使用' : '未在 HTML 中使用';
-                    groupAnalysis += `- $${g.idx}: 捕获模式 ${g.pattern}, ${label}, ${used}\n`;
-                });
-                groupAnalysis += `\n你的新 HTML 的 <script> 必须能够解析并渲染以上所有字段。`;
-                groupAnalysis += `\n解析时请注意：原始正则中紧接在捕获组前面的文字就是字段的 key（如 "HP:" 后跟的捕获组就是 HP 的值）。`;
-                groupAnalysis += `\n新架构下，AI 会输出 key:value 格式的文本，你的 script 需要按行解析并提取对应的 key-value。`;
-            }
-            let userMsg = `请将以下状态栏正则模板升级为"单 $1 捕获 + JS 运行时解析"架构。\n\n当前 findRegex: ${regex}${groupAnalysis}\n\n当前 HTML 模板（其中 $1~$${groups.length || '?'} 是正则捕获组引用）:\n${html}`;
-            if (worldBookText) userMsg += `\n\n当前世界书内容（定义了 AI 输出状态栏的格式）:\n${worldBookText}\n\n请同时输出升级后的世界书内容。用 <!-- WORLDBOOK_START --> 和 <!-- WORLDBOOK_END --> 标签包裹升级后的世界书文本，放在 HTML 输出之后。世界书内容应该匹配新的单标签捕获格式（如 <status>...</status>），告诉 AI 在标签内按 key:value 逐行输出状态数据。`;
-            conversationHistory = [
-                { role: 'system', content: AI_STATUSBAR_UPGRADE_PROMPT },
-                { role: 'user', content: userMsg }
-            ];
-            versionStack = [];
-            redoStack = [];
-
-            $tool.find('.gj-sb-html-editor').val('');
-            $tool.find('.gj-sb-preview').empty();
-            $tool.find('.gj-sb-phase-upload').slideUp(200);
-            $tool.find('.gj-sb-phase-result').slideDown(200);
-            $tool.find('.gj-sb-status').text('(AI 升级中...)');
-            const result = await doAiCall(conversationHistory, { loadingText: 'AI 正在升级状态栏架构...' });
-            if (!result) { $tool.find('.gj-sb-status').text('(失败)'); return; }
-            conversationHistory.push({ role: 'assistant', content: result });
-            processUpgradeResult(result, { isInitial: true });
-            upgraded = true;
-            $tool.find('.gj-sb-status').text('(AI 升级完毕)');
-            pushSnapshot();
-        });
-
-        // === Phase 2: Result ===
-        $tool.find('.gj-sb-config-btn, .gj-sb-config-btn2').on('click', () => showApiConfigDialog());
-        $tool.find('.gj-sb-fullscreen').on('click', () => openFullscreen());
-
-        $tool.find('.gj-sb-html-editor').on('input', function() {
-            currentHtml = stripFence($(this).val());
-            updatePreview(currentHtml);
-        });
-
-        $tool.find('.gj-sb-sample').on('input', function() {
-            sampleData = $(this).val();
-            if (currentHtml) updatePreview(currentHtml);
-        });
-
-        const doRefine = async () => {
-            if (isGenerating) return;
-            const $ri = $tool.find('.gj-sb-refine');
-            const feedback = $ri.val().trim();
-            if (!feedback) return;
-            const justBootstrapped = conversationHistory.length === 0;
-            if (justBootstrapped) {
-                conversationHistory = [
-                    { role: 'system', content: AI_STATUSBAR_UPGRADE_PROMPT },
-                    { role: 'user', content: '以下是当前的状态栏 HTML 模板：\n\n' + currentHtml },
-                    { role: 'assistant', content: currentHtml }
-                ];
-                // 冷启动也要 snapshot 一下初始状态
-                if (versionStack.length === 0) pushSnapshot();
-            }
-            $ri.val('');
-            conversationHistory.push({ role: 'user', content: feedback });
-            $tool.find('.gj-sb-html-editor').val('');
-            $tool.find('.gj-sb-status').text('(AI 润色中...)');
-            const refined = await doAiCall(conversationHistory, { loadingText: 'AI 正在按要求润色...' });
-            if (!refined) {
-                $tool.find('.gj-sb-status').text('(失败)');
-                conversationHistory.pop();
-                updateHistBtnState();
-                return;
-            }
-            conversationHistory.push({ role: 'assistant', content: refined });
-            processUpgradeResult(refined, { isInitial: false });
-            $tool.find('.gj-sb-status').text('(润色完毕)');
-            pushSnapshot();
-        };
-
-        $tool.find('.gj-sb-refine-btn').on('click', doRefine);
-        $tool.find('.gj-sb-refine').on('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRefine(); } });
-
-        // 重 roll：用同一 user 指令重新生成当前版本
-        $tool.find('.gj-sb-reroll-btn').on('click', async () => {
-            if (isGenerating) return;
-            let lastAssistantIdx = -1;
-            for (let i = conversationHistory.length - 1; i >= 0; i--) {
-                if (conversationHistory[i].role === 'assistant') { lastAssistantIdx = i; break; }
-            }
-            if (lastAssistantIdx < 0) return;
-            const trimmed = conversationHistory.slice(0, lastAssistantIdx);
-            $tool.find('.gj-sb-status').text('(AI 重新生成中...)');
-            $tool.find('.gj-sb-html-editor').val('');
-            const refined = await doAiCall(trimmed, { loadingText: 'AI 正在重新生成当前版本...' });
-            if (!refined) { $tool.find('.gj-sb-status').text('(失败)'); return; }
-            conversationHistory = trimmed.slice();
-            conversationHistory.push({ role: 'assistant', content: refined });
-            processUpgradeResult(refined, { isInitial: false });
-            $tool.find('.gj-sb-status').text('(重 roll 完毕)');
-            if (versionStack.length > 0) versionStack.pop();
-            pushSnapshot();
-        });
-
-        // 撤销：回到上一版本（当前版本压入 redo 栈）
-        $tool.find('.gj-sb-undo-btn').on('click', () => {
-            if (versionStack.length < 2) return;
-            redoStack.push(versionStack.pop());
-            const prev = versionStack[versionStack.length - 1];
-            restoreSnapshot(prev);
-            $tool.find('.gj-sb-status').text('(已撤销到上一版)');
-            updateHistBtnState();
-        });
-
-        // 前进：找回被撤销的版本
-        $tool.find('.gj-sb-redo-btn').on('click', () => {
-            if (redoStack.length === 0) return;
-            const next = redoStack.pop();
-            versionStack.push(next);
-            restoreSnapshot(next);
-            $tool.find('.gj-sb-status').text('(已前进到下一版)');
-            updateHistBtnState();
-        });
-
-        $tool.find('.gj-sb-back-btn').on('click', () => {
-            conversationHistory = [];
-            upgraded = false;
-            sampleData = '';
-            versionStack = [];
-            redoStack = [];
-            $tool.find('.gj-sb-sample').val('');
-            $tool.find('.gj-sb-overwrite-regex-btn, .gj-sb-overwrite-wb-btn').hide();
-            $tool.find('.gj-sb-phase-result').slideUp(200);
-            $tool.find('.gj-sb-phase-upload').slideDown(200);
-            updateHistBtnState();
-        });
-
-        $tool.find('.gj-sb-overwrite-regex-btn').on('click', async () => {
-            if (sourceRegexIdx === null) return;
-            const html = stripFence($tool.find('.gj-sb-html-editor').val());
-            if (!html) { toastr.warning("HTML 内容为空"); return; }
-            const charId = SillyTavern.characterId;
-            const charObj = SillyTavern.characters?.[charId];
-            const scripts = charObj?.data?.extensions?.regex_scripts;
-            if (!scripts || sourceRegexIdx >= scripts.length) { toastr.error("找不到原局部正则，可能已被删除"); return; }
-            const scriptName = scripts[sourceRegexIdx].scriptName || '未命名';
-            const confirmed = confirm(`确定覆盖局部正则「${scriptName}」？\n此操作将修改角色卡中的正则脚本。`);
-            if (!confirmed) return;
-
-            const patch = { replaceString: wrapFence(html) };
-            if (originalJson?._suggestedRegex) {
-                const sr = originalJson._suggestedRegex;
-                const m = sr.match(/^\/(.+)\/([gimsuy]*)$/);
-                if (m) patch.findRegex = m[1];
-            }
-
-            const $btn = $tool.find('.gj-sb-overwrite-regex-btn');
-            const originalLabel = $btn.html();
-            $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 保存中...');
-            const res = await overwriteScopedRegex(sourceRegexIdx, patch);
-            $btn.prop('disabled', false).html(originalLabel);
-            if (res.ok) toastr.success(`已覆盖局部正则「${scriptName}」并保存`);
-            else toastr.error(`覆盖失败：${res.reason}`);
-        });
-
-        $tool.find('.gj-sb-overwrite-wb-btn').on('click', async () => {
-            if (!sourceWbEntry) return;
-            const wb = $tool.find('.gj-sb-wb-editor').val().trim();
-            if (!wb) { toastr.warning("世界书内容为空"); return; }
-            const confirmed = confirm(`确定覆盖世界书条目「${sourceWbEntry.comment}」？\n此操作将修改世界书内容。`);
-            if (!confirmed) return;
-            try {
-                await window.TavernHelper.setLorebookEntries(sourceWbEntry.lorebook, [{ uid: sourceWbEntry.uid, content: wb }]);
-                toastr.success("已覆盖世界书条目");
-            } catch (e) { toastr.error("覆盖世界书失败: " + e.message); }
-        });
-
-        $tool.find('.gj-sb-export-btn').on('click', () => {
-            const html = stripFence($tool.find('.gj-sb-html-editor').val());
-            if (!html) { toastr.warning("HTML 内容为空"); return; }
-            if (!originalJson) { toastr.error("原始 JSON 丢失"); return; }
-            const exported = Object.assign({}, originalJson);
-            exported.replaceString = wrapFence(html);
-            if (originalJson?._suggestedRegex) {
-                const sr = originalJson._suggestedRegex;
-                const m = sr.match(/^\/(.+)\/([gimsuy]*)$/);
-                if (m) {
-                    exported.findRegex = m[1];
-                    if (exported.flags !== undefined) {
-                        exported.flags = m[2] || '';
-                    }
-                }
-            }
-            delete exported._suggestedRegex;
-            exported.id = originalJson.id || ('sb-upgraded-' + Date.now());
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exported, null, 2));
-            const anchor = document.createElement('a');
-            anchor.href = dataStr;
-            const baseName = (originalJson.scriptName || 'StatusBar').replace(/[^\w\u4e00-\u9fff]/g, '_');
-            anchor.download = `Regex_${baseName}_Upgraded.json`;
-            document.body.appendChild(anchor);
-            anchor.click();
-            anchor.remove();
-            toastr.success("升级版正则已导出，请在正则扩展中导入");
-        });
-
-        const toolPopup = new SillyTavern.Popup($tool, SillyTavern.POPUP_TYPE.TEXT, "", { large: true, okButton: "关闭" });
-        await toolPopup.show();
-    }
-
-    // --- 状态栏工具（生成 + 升级，基于当前角色卡风格适配） ---
-    async function openStatusBarAIStudio() {
-        const charId = SillyTavern.characterId;
-        const charObj = SillyTavern.characters?.[charId];
-        if (!charObj) { toastr.warning("请先打开一个角色"); return; }
-
-        let toolPopup = null;
-
-        const DEFAULT_TEMPLATE = [
-            { name: '时间',             type: 'text',     placeholder: '傍晚七点' },
-            { name: '地点',             type: 'text',     placeholder: '苏州·拙政园' },
-            { name: '{{char}}着装',     type: 'text',     placeholder: '白色连衣裙' },
-            { name: '{{user}}着装',     type: 'text',     placeholder: '休闲衬衫' },
-            { name: '{{char}}动作',     type: 'text',     placeholder: '微微侧身，手指绕着发梢' },
-            { name: '{{user}}动作',     type: 'text',     placeholder: '坐在她对面，指尖轻敲桌面' },
-            { name: '关系阶段',         type: 'badge',    placeholder: '暧昧期' },
-            { name: '好感度',           type: 'progress', placeholder: '72', min: 0, max: 100 },
-            { name: '碎碎念',           type: 'text',     placeholder: '...他又在看我' }
-        ];
-
-        // 自动匹配我们自己生成的首页跳转正则作为默认的"首页美化"风格参考
-        // 固定 scriptName："开场白跳转(美化)" (融合版) 优先，其次 "开场白跳转"（基础版）
-        const autoPickHomepageRegex = () => {
-            const scripts = charObj?.data?.extensions?.regex_scripts || [];
-            let idx = scripts.findIndex(s => {
-                const n = s && s.scriptName || '';
-                return n.includes('开场白跳转') && n.includes('美化');
-            });
-            if (idx < 0) idx = scripts.findIndex(s => (s && s.scriptName || '').includes('开场白跳转'));
-            if (idx < 0 || !scripts[idx]?.replaceString) return null;
-            return {
-                idx,
-                name: scripts[idx].scriptName || '未命名',
-                html: scripts[idx].replaceString.trim().replace(/^```(?:html)?\s*/i, '').replace(/```\s*$/, '').trim()
-            };
-        };
-        const autoHomepage = autoPickHomepageRegex();
-
-        // 扫描角色卡所有开场白（first_mes + alternate_greetings），提取 title / body
-        const parseG = (raw) => {
-            if (!raw) return { title: '', body: '' };
-            const p = (typeof parseMessageContent === 'function') ? parseMessageContent(raw) : { title: '', body: raw };
-            return { title: (p && p.title || '').trim(), body: (p && p.body || raw).trim() };
-        };
-        const allGreetings = (() => {
-            const list = [];
-            const fm = charObj && charObj.first_mes || '';
-            if (fm) list.push({ displayNum: 0, ...parseG(fm) });
-            const alts = charObj?.data?.alternate_greetings || [];
-            alts.forEach((g, i) => {
-                if (g && String(g).trim()) list.push({ displayNum: i + 1, ...parseG(g) });
-            });
-            return list;
-        })();
-
-        // ---- state ----
-        let selected = {
-            persona:   true,
-            greeting:  allGreetings.length > 0,
-            pickedGreetings: allGreetings.length > 0 ? [allGreetings[0]] : [],
-            template:  true,
-            homepage:  !!autoHomepage,
-            pickedHomepageIdx:  autoHomepage ? autoHomepage.idx  : null,
-            pickedHomepageName: autoHomepage ? autoHomepage.name : '',
-            pickedHomepageHtml: autoHomepage ? autoHomepage.html : '',
-            worldbook: false, pickedWbEntries: [],
-            extra: ''
-        };
-        let templateEntries = DEFAULT_TEMPLATE.map(e => ({ ...e }));
-        let proposal = null;          // { styleSummary, entries }
-        let conversationHistory = [];
-        let currentHtml = '';
-        let suggestedRegex = '<status>([\\s\\S]*?)</status>';
-        let sampleData = '';
-        let worldBookOutput = '';
-        let isGenerating = false;
-
-        const stripFence = (s) => { if (!s) return ''; return s.trim().replace(/^```(?:html|json)?\s*/i, '').replace(/```\s*$/, '').trim(); };
-        const wrapFence  = (s) => '```html\n' + s + '\n```';
-        const cleanAiOutput = (text) => {
-            let html = (text || '').trim();
-            html = html.replace(/^```html\s*/i, '').replace(/```\s*$/, '');
-            html = html.replace(/^```\s*/i, '').replace(/```\s*$/, '');
-            return html.trim();
-        };
-
-        const $tool = $(`<div class="gj-adv-beauty-container gj-sbgen-container">
-            <div class="gj-adv-header-row">
-                <label class="gj-adv-label"><i class="fa-solid fa-wand-magic-sparkles"></i> 状态栏工具</label>
-                <button type="button" class="gj-sbgen-icon-btn gj-sbgen-help-btn" title="帮助 / 使用说明" style="margin-left:auto;"><i class="fa-solid fa-circle-question"></i></button>
-                <button type="button" class="gj-sbgen-icon-btn gj-sbgen-config-btn" title="AI 配置"><i class="fa-solid fa-gear"></i></button>
-            </div>
-
-            <div class="gj-sb-source-tabs gj-sbgen-mode-tabs">
-                <button type="button" class="gj-sb-source-tab active" data-mode="gen"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成状态栏</button>
-                <button type="button" class="gj-sb-source-tab" data-mode="upgrade"><i class="fa-solid fa-arrow-up-right-dots"></i> 升级现有状态栏</button>
-            </div>
-
-            <!-- Phase 0: 素材采集 -->
-            <div class="gj-adv-phase gj-sbgen-phase-mat">
-                <div style="opacity:0.7;font-size:0.9em;line-height:1.5;margin-bottom:6px;">
-                    选择要参考的素材，AI 会据此让状态栏<b>条目</b>与<b>视觉风格</b>都贴合当前角色卡。
-                </div>
-
-                <div class="gj-sbgen-mat-list">
-                    <label class="gj-sbgen-mat-item">
-                        <input type="checkbox" class="gj-sbgen-chk-persona" checked>
-                        <div class="gj-sbgen-mat-info">
-                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-user"></i> 角色设定</div>
-                            <div class="gj-sbgen-mat-hint">自动读取</div>
-                        </div>
-                        <button type="button" class="gj-custom-btn gj-sbgen-mat-preview" data-src="persona"><i class="fa-solid fa-eye"></i> 预览</button>
-                    </label>
-
-                    <div class="gj-sbgen-mat-item">
-                        <input type="checkbox" class="gj-sbgen-chk-greeting" ${allGreetings.length ? 'checked' : ''}>
-                        <div class="gj-sbgen-mat-info">
-                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-message"></i> 开场白正文</div>
-                            <div class="gj-sbgen-mat-hint gj-sbgen-greeting-hint"></div>
-                        </div>
-                        <button type="button" class="gj-custom-btn gj-sbgen-pick-greeting"><i class="fa-solid fa-list-check"></i> 选取</button>
-                    </div>
-
-                    <div class="gj-sbgen-mat-item">
-                        <input type="checkbox" class="gj-sbgen-chk-homepage" ${autoHomepage ? 'checked' : ''}>
-                        <div class="gj-sbgen-mat-info">
-                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-palette"></i> 首页美化</div>
-                            <div class="gj-sbgen-mat-hint gj-sbgen-homepage-hint">${autoHomepage ? ('已自动匹配：<b>' + _.escape(autoHomepage.name) + '</b>（点【选取】可替换）') : '从局部正则中挑一条美化 HTML 作为<b>视觉风格</b>参考'}</div>
-                        </div>
-                        <button type="button" class="gj-custom-btn gj-sbgen-pick-homepage"><i class="fa-solid fa-list-check"></i> 选取</button>
-                    </div>
-
-                    <div class="gj-sbgen-mat-item">
-                        <input type="checkbox" class="gj-sbgen-chk-worldbook">
-                        <div class="gj-sbgen-mat-info">
-                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-book"></i> 世界书条目</div>
-                            <div class="gj-sbgen-mat-hint gj-sbgen-wb-hint">可多选，用作世界观 / 剧情设定参考</div>
-                        </div>
-                        <button type="button" class="gj-custom-btn gj-sbgen-pick-wb"><i class="fa-solid fa-list-check"></i> 选取</button>
-                    </div>
-
-                    <div class="gj-sbgen-mat-item">
-                        <input type="checkbox" class="gj-sbgen-chk-template" checked>
-                        <div class="gj-sbgen-mat-info">
-                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-list-check"></i> 常规条目模板</div>
-                            <div class="gj-sbgen-mat-hint">在默认 9 条的基础上修改</div>
-                        </div>
-                        <button type="button" class="gj-custom-btn gj-sbgen-edit-template"><i class="fa-solid fa-pen"></i> 编辑</button>
-                    </div>
-
-                    <div class="gj-sbgen-mat-item gj-sbgen-mat-extra" style="align-items:flex-start;">
-                        <input type="checkbox" class="gj-sbgen-chk-extra" style="margin-top:14px;">
-                        <div class="gj-sbgen-mat-info" style="flex:1;">
-                            <div class="gj-sbgen-mat-title"><i class="fa-solid fa-plus"></i> 补充要求</div>
-                            <textarea class="gj-sbgen-extra-input" rows="2" placeholder="例：加入修为/KPI/班主任好感度；标题用竖排；加入战损百分比..."></textarea>
-                        </div>
-                    </div>
-                </div>
-
-                <button type="button" class="gj-sb-upgrade-cta gj-sbgen-analyze-btn" style="margin-top:12px;">
-                    <i class="fa-solid fa-microscope"></i> 分析并生成条目建议
-                </button>
-            </div>
-
-            <!-- Phase 1: 条目建议 -->
-            <div class="gj-adv-phase gj-sbgen-phase-prop" style="display:none;">
-                <div class="gj-sb-result-banner success">
-                    <i class="fa-solid fa-circle-check"></i>
-                    <span>已生成条目建议，可在下方修改后进入下一步</span>
-                </div>
-
-                <div class="gj-adv-editor-section" style="margin-top:6px;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-palette"></i> 视觉风格摘要 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(描述颜色/字体/氛围/排版)</span></label>
-                    <textarea class="gj-sb-worldbook gj-sbgen-style-input" rows="3" placeholder="如：明清古风，朱砂红+墨绿主色，毛笔字标题..."></textarea>
-                </div>
-
-                <div class="gj-adv-editor-section" style="margin-top:8px;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-list-check"></i> 状态栏条目 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(拖动排序 / 可增删 / 可改类型)</span></label>
-                    <div class="gj-sbgen-entry-list"></div>
-                    <button type="button" class="gj-custom-btn gj-sbgen-entry-add" style="margin-top:6px;"><i class="fa-solid fa-plus"></i> 增加一条</button>
-                </div>
-
-                <div class="gj-sb-btn-row" style="margin-top:10px;">
-                    <button type="button" class="gj-custom-btn gj-sbgen-back-mat"><i class="fa-solid fa-arrow-left"></i> 返回</button>
-                    <button type="button" class="gj-custom-btn gj-sbgen-reanalyze"><i class="fa-solid fa-rotate"></i> 重新分析</button>
-                    <span style="flex:1;"></span>
-                    <button type="button" class="gj-custom-btn primary gj-sbgen-render-btn"><i class="fa-solid fa-paint-brush"></i> 生成 HTML</button>
-                </div>
-            </div>
-
-            <!-- Phase 2: 结果（沿用状态栏工具的结果 UI） -->
-            <div class="gj-adv-phase gj-sbgen-phase-result" style="display:none;">
-                <div class="gj-sb-result-banner success">
-                    <i class="fa-solid fa-circle-check"></i>
-                    <span>生成完毕</span>
-                    <span class="gj-sbgen-suggested-regex"></span>
-                </div>
-                <div class="gj-adv-result-header" style="margin-top:8px;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-code"></i> 状态栏 HTML <span class="gj-sbgen-status" style="opacity:0.5;font-weight:normal;font-size:0.85em;"></span></label>
-                </div>
-                <textarea class="gj-adv-result-editor gj-sbgen-html-editor" rows="8"></textarea>
-                <div class="gj-adv-editor-section">
-                    <div class="gj-adv-preview-header">
-                        <label class="gj-adv-label"><i class="fa-solid fa-eye"></i> 预览 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(样本数据填充下方可实时预览)</span></label>
-                        <button type="button" class="gj-adv-fullscreen-btn gj-sbgen-fullscreen" title="全屏预览"><i class="fa-solid fa-expand"></i> 全屏</button>
-                    </div>
-                    <div class="gj-adv-preview gj-sbgen-preview"></div>
-                    <textarea class="gj-sb-worldbook gj-sbgen-sample" rows="2" style="margin-top:4px;" placeholder="粘贴或编辑样本数据（key:value 每行一条）"></textarea>
-                </div>
-                <div class="gj-adv-editor-section gj-sbgen-wb-section" style="margin-top:4px;display:none;">
-                    <label class="gj-adv-label"><i class="fa-solid fa-book"></i> 配套世界书内容 <span style="opacity:0.5;font-weight:normal;font-size:0.85em;">(告知主 AI 每回合按此输出)</span></label>
-                    <textarea class="gj-sb-worldbook gj-sbgen-wb-editor" rows="4"></textarea>
-                </div>
-                <div class="gj-adv-refine-bar" style="margin-top:6px;">
-                    <input class="gj-adv-refine-input gj-sbgen-refine" type="text" placeholder="输入润色要求，例：改成深色风格、好感度改成心形进度条...">
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sbgen-undo-btn" title="后退一步（回到上一版）" disabled><i class="fa-solid fa-arrow-left"></i><span class="gj-hist-count"></span></button>
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sbgen-redo-btn" title="前进一步（找回被撤销的版本）" disabled><i class="fa-solid fa-arrow-right"></i><span class="gj-hist-count"></span></button>
-                    <button type="button" class="gj-custom-btn gj-hist-btn gj-sbgen-reroll-btn" title="重新生成（用同一指令再来一次）" disabled><i class="fa-solid fa-arrows-rotate"></i></button>
-                    <button type="button" class="gj-custom-btn primary gj-adv-refine-btn gj-sbgen-refine-btn" title="发送润色指令"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-                <div class="gj-sb-btn-row">
-                    <button type="button" class="gj-custom-btn gj-sbgen-back-prop"><i class="fa-solid fa-arrow-left"></i> 返回条目</button>
-                    <span style="flex:1;"></span>
-                    <button type="button" class="gj-custom-btn gj-sbgen-add-wb-btn" style="background:#f59e0b;color:#fff;border:none;display:none;" title="新增到世界书"><i class="fa-solid fa-book-medical"></i> 新增到世界书</button>
-                    <button type="button" class="gj-custom-btn success gj-sbgen-export-btn"><i class="fa-solid fa-download"></i> 导出正则</button>
-                </div>
-            </div>
-
-            <div class="gj-adv-loading" style="display:none;">
-                <div class="gj-adv-spinner"></div>
-                <div class="gj-adv-loading-text">正在处理...</div>
-            </div>
-        </div>`);
-
-        const positionLoading = () => {
-            const el = $tool[0];
-            if (!el) return;
-            const r = el.getBoundingClientRect();
-            $tool.find('.gj-adv-loading').css({ position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px', inset: 'auto' });
-        };
-        const showLoading = (text) => {
-            $tool.css('overflow', 'hidden');
-            positionLoading();
-            $tool.find('.gj-adv-loading').show();
-            $tool.find('.gj-adv-loading-text').text(text || '正在处理...');
-        };
-        const hideLoading = () => {
-            $tool.find('.gj-adv-loading').hide();
-            $tool.css('overflow-y', 'auto');
-        };
-
-        const doAiCall = async (messages, opts) => {
-            opts = opts || {};
-            const { maxRetries = 1, loadingText = '正在调用 AI...' } = opts;
-            isGenerating = true;
-            showLoading(loadingText);
-            const aiCfg = getAiConfig();
-            const useMain = aiCfg.useMainApi !== false;
-            const hasCustom = aiCfg.endpoint && aiCfg.key;
-            const hasStApi = hasMainApi();
-            if ((useMain && !hasStApi) || (!useMain && !hasCustom)) {
-                hideLoading(); isGenerating = false;
-                toastr.warning(useMain ? "主 API 不可用（未检测到 TavernHelper），请切换到自定义 API" : "请先配置自定义 API");
-                await showApiConfigDialog();
-                return null;
-            }
-            const statusReporter = (s) => { $tool.find('.gj-adv-loading-text').text(s); };
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                try {
-                    if (attempt > 0) showLoading(`正在重试 (${attempt}/${maxRetries})...`);
-                    const result = await callAI(messages, statusReporter);
-                    hideLoading(); isGenerating = false;
-                    if (!result) { toastr.error("AI 返回为空"); return null; }
-                    return result;
-                } catch (e) {
-                    if (isAbortError(e)) { hideLoading(); isGenerating = false; return null; }
-                    const isTimeout = /504|timeout|timed?\s*out|gateway/i.test(e.message);
-                    if (isTimeout && attempt < maxRetries) {
-                        toastr.warning(`请求超时，3 秒后自动重试...`, '', { timeOut: 3000 });
-                        await new Promise(r => setTimeout(r, 3000));
-                        continue;
-                    }
-                    hideLoading(); isGenerating = false;
-                    toastr.error(isTimeout ? "AI 请求超时。建议：再试一次或切换到自定义 API" : ("AI 调用失败: " + e.message));
-                    return null;
-                }
-            }
-            hideLoading(); isGenerating = false;
-            return null;
-        };
-
-        // ---- 素材提取 ----
-        const getPersonaText = () => {
-            const parts = [];
-            if (charObj.description) parts.push('【描述】\n' + charObj.description);
-            if (charObj.personality) parts.push('【性格】\n' + charObj.personality);
-            if (charObj.scenario)    parts.push('【场景】\n' + charObj.scenario);
-            return parts.join('\n\n');
-        };
-        const getGreetingText = () => {
-            const picked = (selected.pickedGreetings || []).filter(g => g && g.body);
-            if (!picked.length) return '';
-            if (picked.length === 1) return picked[0].body;
-            return picked.map((g, i) => {
-                const label = g.title || `开场白 #${g.displayNum}`;
-                return `### 开场白 ${i + 1}：${label}\n${g.body}`;
-            }).join('\n\n');
-        };
-        const updateGreetingHint = () => {
-            const total = allGreetings.length;
-            const picked = selected.pickedGreetings || [];
-            const $h = $tool.find('.gj-sbgen-greeting-hint');
-            if (total === 0) { $h.text('（当前角色卡没有可用开场白）'); return; }
-            if (picked.length === 0) {
-                $h.html(`未选（共 <b>${total}</b> 条）`);
-            } else if (picked.length === 1) {
-                const p = picked[0];
-                const label = p.title || `开场白 #${p.displayNum}`;
-                const suffix = total > 1 ? ` / 共 <b>${total}</b> 条` : '';
-                $h.html(`已选：<b>${_.escape(label)}</b>${suffix}`);
-            } else {
-                $h.html(`已选 <b>${picked.length}</b> 条 / 共 <b>${total}</b> 条`);
-            }
-        };
-        const truncate = (text, max) => {
-            if (!text) return '';
-            if (text.length <= max) return text;
-            return text.substring(0, max) + `\n...(已截断，共 ${text.length} 字)`;
-        };
-
-        // ---- 素材勾选 UI 事件 ----
-        $tool.find('.gj-sbgen-chk-persona').on('change', function () { selected.persona = $(this).is(':checked'); });
-        $tool.find('.gj-sbgen-chk-greeting').on('change', function () {
-            selected.greeting = $(this).is(':checked');
-            // 首次勾回来但没选中任何条目 → 默认补上 first_mes
-            if (selected.greeting && selected.pickedGreetings.length === 0 && allGreetings[0]) {
-                selected.pickedGreetings = [allGreetings[0]];
-                updateGreetingHint();
-            }
-        });
-        $tool.find('.gj-sbgen-chk-template').on('change', function () { selected.template = $(this).is(':checked'); });
-        $tool.find('.gj-sbgen-chk-homepage').on('change', function () { selected.homepage = $(this).is(':checked'); });
-        $tool.find('.gj-sbgen-chk-worldbook').on('change', function () { selected.worldbook = $(this).is(':checked'); });
-        $tool.find('.gj-sbgen-chk-extra').on('change', function () { /* 勾选即启用；文本单独维护 */ });
-        $tool.find('.gj-sbgen-extra-input').on('input', function () {
-            selected.extra = $(this).val();
-            if (selected.extra.trim()) $tool.find('.gj-sbgen-chk-extra').prop('checked', true);
-        });
-
-        // 素材内容预览（仅角色设定；开场白预览整合进选取弹窗）
-        $tool.find('.gj-sbgen-mat-preview').on('click', async function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            const src = $(this).data('src');
-            if (src !== 'persona') return;
-            const content = getPersonaText() || '(空)';
-            const $view = $(`<div style="max-height:60vh;overflow:auto;padding:12px;white-space:pre-wrap;font-size:0.85em;line-height:1.6;color:var(--smart-theme-body-color);text-align:left;">${_.escape(content)}</div>`);
-            const pv = new SillyTavern.Popup($view, SillyTavern.POPUP_TYPE.TEXT, '角色设定', { okButton: "关闭" });
-            await pv.show();
-        });
-
-        // 挑选首页美化正则
-        $tool.find('.gj-sbgen-pick-homepage').on('click', async () => {
-            try {
-                const scripts = charObj?.data?.extensions?.regex_scripts || [];
-                if (!scripts.length) { toastr.warning("当前角色卡没有绑定局部正则"); return; }
-                const items = scripts.map((s, i) => {
-                    const name = _.escape(s.scriptName || '未命名');
-                    const regex = _.escape((s.findRegex || '').substring(0, 50));
-                    const htmlSnippet = _.escape((s.replaceString || '').replace(/\n/g, ' ').substring(0, 80));
-                    return `<div class="gj-sbgen-regex-pick-item" data-idx="${i}" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.15);transition:background 0.15s;">
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <i class="fa-solid fa-file-code" style="opacity:0.4;"></i>
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-weight:bold;font-size:0.9em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
-                                <div style="font-size:0.75em;opacity:0.5;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">/${regex}/</div>
-                                <div style="font-size:0.75em;opacity:0.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${htmlSnippet || '(空替换内容)'}</div>
-                            </div>
-                        </div>
-                    </div>`;
-                }).join('');
-                const $pick = $(`<div style="max-height:50vh;overflow-y:auto;text-align:left;">${items}</div>`);
-                const pickPopup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.TEXT, "选择首页美化正则 — 作视觉风格参考", { okButton: "取消" });
-                $pick.find('.gj-sbgen-regex-pick-item').on('click', function () {
-                    const idx = parseInt($(this).data('idx'));
-                    const s = scripts[idx];
-                    if (s && s.replaceString) {
-                        selected.pickedHomepageIdx = idx;
-                        selected.pickedHomepageName = s.scriptName || '未命名';
-                        selected.pickedHomepageHtml = stripFence(s.replaceString);
-                        selected.homepage = true;
-                        $tool.find('.gj-sbgen-chk-homepage').prop('checked', true);
-                        $tool.find('.gj-sbgen-homepage-hint').html(`已选：<b>${_.escape(selected.pickedHomepageName)}</b>`);
-                        toastr.success(`已选择「${selected.pickedHomepageName}」作为风格参考`);
-                    }
-                    pickPopup.complete(SillyTavern.POPUP_RESULT.AFFIRMATIVE);
-                });
-                $pick.find('.gj-sbgen-regex-pick-item').on('mouseenter', function () { $(this).css('background', 'rgba(122,154,131,0.1)'); }).on('mouseleave', function () { $(this).css('background', ''); });
-                await pickPopup.show();
-            } catch (e) { console.error(e); toastr.error("读取局部正则失败"); }
-        });
-
-        // 挑选世界书条目（多选）
-        // 开场白多选弹窗（每条可展开查看完整正文）
-        $tool.find('.gj-sbgen-pick-greeting').on('click', async () => {
-            if (!allGreetings.length) { toastr.warning("未找到任何开场白"); return; }
-            const initial = new Set(selected.pickedGreetings.map(g => g.displayNum));
-            const items = allGreetings.map((g, i) => {
-                const checked = initial.has(g.displayNum) ? 'checked' : '';
-                const preview = (g.body || '').substring(0, 80).replace(/\n/g, ' ');
-                const label = g.title || `开场白 #${g.displayNum}`;
-                return `<div class="gj-sbgen-g-wrap" data-idx="${i}" style="border-bottom:1px solid rgba(128,128,128,0.15);">
-                    <div style="display:flex;align-items:stretch;">
-                        <label class="gj-sbgen-g-pick-item" style="flex:1;display:flex;gap:8px;align-items:flex-start;padding:8px 12px;cursor:pointer;transition:background 0.15s;min-width:0;">
-                            <input type="checkbox" ${checked} style="margin-top:4px;">
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-weight:bold;font-size:0.9em;">${_.escape(label)} <span style="opacity:0.4;font-weight:normal;">#${g.displayNum} · ${g.body.length} 字</span></div>
-                                <div class="gj-sbgen-g-preview" style="font-size:0.78em;opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(preview)}</div>
-                            </div>
-                        </label>
-                        <button type="button" class="gj-sbgen-g-expand" title="展开完整正文" style="background:transparent;border:none;border-left:1px solid rgba(128,128,128,0.12);color:var(--smart-theme-body-color);opacity:0.7;cursor:pointer;padding:0 14px;flex-shrink:0;"><i class="fa-solid fa-chevron-down"></i></button>
-                    </div>
-                    <div class="gj-sbgen-g-full" style="display:none;padding:8px 14px 12px;background:rgba(128,128,128,0.06);max-height:40vh;overflow:auto;white-space:pre-wrap;font-size:0.83em;line-height:1.6;color:var(--smart-theme-body-color);">${_.escape(g.body)}</div>
-                </div>`;
-            }).join('');
-            const $header = $(`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid rgba(128,128,128,0.15);">
-                <label class="gj-sbgen-g-all-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em;white-space:nowrap;margin:0;">
-                    <input type="checkbox" class="gj-sbgen-g-all">
-                    <span>全选</span>
-                </label>
-                <div class="gj-sbgen-g-sum" style="flex:1;font-size:0.85em;opacity:0.75;text-align:right;"></div>
-            </div>`);
-            const $sum = $header.find('.gj-sbgen-g-sum');
-            const $pick = $('<div style="text-align:left;"></div>')
-                .append($header)
-                .append('<div style="padding:6px 12px;opacity:0.55;font-size:0.8em;">多选时，AI 会按「标题 + 正文」顺序拼接作为笔触 / 情境参考</div>')
-                .append(`<div style="max-height:50vh;overflow-y:auto;">${items}</div>`);
-            const updateAllChkState = () => {
-                const $items = $pick.find('.gj-sbgen-g-wrap input[type="checkbox"]');
-                const total = $items.length;
-                const checked = $items.filter(':checked').length;
-                const $all = $pick.find('.gj-sbgen-g-all')[0];
-                if (!$all) return;
-                $all.checked = total > 0 && checked === total;
-                $all.indeterminate = checked > 0 && checked < total;
-            };
-            const updateSum = () => {
-                let cnt = 0, chars = 0;
-                $pick.find('.gj-sbgen-g-wrap').each(function () {
-                    if ($(this).find('input[type="checkbox"]').is(':checked')) {
-                        cnt++;
-                        chars += allGreetings[parseInt($(this).data('idx'))].body.length;
-                    }
-                });
-                const warn = chars > 5000 ? '<span style="color:#d97a30;margin-left:8px;">⚠ 超出 5000 字的部分会被截断</span>' : '';
-                $sum.html(`已选 <b>${cnt}</b> 条 / 约 <b>${chars}</b> 字${warn}`);
-                updateAllChkState();
-            };
-            $pick.on('change', '.gj-sbgen-g-wrap input[type="checkbox"]', updateSum);
-            $pick.on('change', '.gj-sbgen-g-all', function () {
-                const ck = $(this).prop('checked');
-                $pick.find('.gj-sbgen-g-wrap input[type="checkbox"]').prop('checked', ck);
-                updateSum();
-            });
-            // 展开/收起完整正文
-            $pick.on('click', '.gj-sbgen-g-expand', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                const $wrap = $(this).closest('.gj-sbgen-g-wrap');
-                const $full = $wrap.find('.gj-sbgen-g-full');
-                const $icon = $(this).find('i');
-                const showing = $full.is(':visible');
-                $full.toggle(!showing);
-                $icon.toggleClass('fa-chevron-down', showing).toggleClass('fa-chevron-up', !showing);
-                $(this).attr('title', showing ? '展开完整正文' : '收起');
-            });
-            updateSum();
-            const popup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.CONFIRM, "选择开场白（可多选，点 ⌄ 展开完整正文）", { okButton: "确认选择", cancelButton: "取消" });
-            const result = await popup.show();
-            if (result) {
-                const picked = [];
-                $pick.find('.gj-sbgen-g-wrap').each(function () {
-                    if ($(this).find('input[type="checkbox"]').is(':checked')) picked.push(allGreetings[parseInt($(this).data('idx'))]);
-                });
-                selected.pickedGreetings = picked;
-                selected.greeting = picked.length > 0;
-                $tool.find('.gj-sbgen-chk-greeting').prop('checked', picked.length > 0);
-                updateGreetingHint();
-                toastr.success(picked.length ? `已选择 ${picked.length} 条开场白` : '已清空');
-            }
-        });
-
-        // 初始化开场白 hint（基于默认选中项）
-        updateGreetingHint();
-
-        $tool.find('.gj-sbgen-pick-wb').on('click', async () => {
-            try {
-                const lorebookName = window.TavernHelper?.getCurrentCharPrimaryLorebook?.();
-                if (!lorebookName) { toastr.warning("当前角色未绑定主世界书"); return; }
-                const entries = await window.TavernHelper.getLorebookEntries(lorebookName);
-                if (!entries || !entries.length) { toastr.warning("世界书为空"); return; }
-                const initialChecked = new Set((selected.pickedWbEntries || []).map(e => e.uid));
-                const items = entries.map((e, i) => {
-                    const name = e.comment || (e.key?.length ? e.key[0] : `条目 ${e.uid}`);
-                    const preview = (e.content || '').substring(0, 80).replace(/\n/g, ' ');
-                    const checked = initialChecked.has(e.uid) ? 'checked' : '';
-                    return `<label class="gj-sbgen-wb-pick-item" data-idx="${i}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(128,128,128,0.15);transition:background 0.15s;">
-                        <input type="checkbox" ${checked} style="margin-top:4px;">
-                        <div style="flex:1;min-width:0;">
-                            <div style="font-weight:bold;font-size:0.9em;">${_.escape(name)} <span style="opacity:0.4;font-weight:normal;">uid:${e.uid}</span></div>
-                            <div style="font-size:0.78em;opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_.escape(preview)}</div>
-                        </div>
-                    </label>`;
-                }).join('');
-                const $pick = $(`<div style="text-align:left;"><div style="padding:6px 12px;font-size:0.85em;opacity:0.7;">可多选，AI 会综合参考</div><div style="max-height:50vh;overflow-y:auto;">${items}</div></div>`);
-                const pickPopup = new SillyTavern.Popup($pick, SillyTavern.POPUP_TYPE.CONFIRM, "选择世界书条目（多选）", { okButton: "确认选择", cancelButton: "取消" });
-                const result = await pickPopup.show();
-                if (result) {
-                    const picked = [];
-                    $pick.find('.gj-sbgen-wb-pick-item').each(function () {
-                        const idx = parseInt($(this).data('idx'));
-                        const cb = $(this).find('input[type="checkbox"]');
-                        if (cb.is(':checked')) {
-                            const e = entries[idx];
-                            picked.push({ uid: e.uid, name: e.comment || (e.key?.length ? e.key[0] : `条目 ${e.uid}`), content: e.content || '' });
-                        }
-                    });
-                    selected.pickedWbEntries = picked;
-                    selected.worldbook = picked.length > 0;
-                    $tool.find('.gj-sbgen-chk-worldbook').prop('checked', picked.length > 0);
-                    if (picked.length) {
-                        $tool.find('.gj-sbgen-wb-hint').html(`已选 <b>${picked.length}</b> 条：${picked.map(p => _.escape(p.name)).join('、')}`);
-                        toastr.success(`已选择 ${picked.length} 条世界书`);
-                    } else {
-                        $tool.find('.gj-sbgen-wb-hint').text('可多选，用作世界观 / 剧情设定参考');
-                    }
-                }
-            } catch (e) { console.error(e); toastr.error("读取世界书失败: " + e.message); }
-        });
-
-        // 编辑模板条目
-        const openTemplateEditor = async () => {
-            const renderRow = (e, idx) => `<div class="gj-sbgen-tpl-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-                <input type="text" class="gj-sbgen-tpl-name" value="${_.escape(e.name)}" style="flex:2;min-width:0;" placeholder="条目名">
-                <select class="gj-sbgen-tpl-type" style="flex:1;min-width:0;">
-                    <option value="text" ${e.type==='text'?'selected':''}>文本</option>
-                    <option value="progress" ${e.type==='progress'?'selected':''}>进度</option>
-                    <option value="star" ${e.type==='star'?'selected':''}>星级</option>
-                    <option value="icon" ${e.type==='icon'?'selected':''}>图标</option>
-                    <option value="badge" ${e.type==='badge'?'selected':''}>标签</option>
-                </select>
-                <input type="text" class="gj-sbgen-tpl-ph" value="${_.escape(e.placeholder||'')}" style="flex:2;min-width:0;" placeholder="示例值">
-                <button type="button" class="gj-custom-btn gj-sbgen-tpl-del" title="删除"><i class="fa-solid fa-trash"></i></button>
-            </div>`;
-            const $editor = $(`<div style="max-height:60vh;overflow:auto;padding:8px;text-align:left;">
-                <div style="opacity:0.7;font-size:0.85em;margin-bottom:8px;">AI 会在这 9 条的基础上为当前角色增删 / 改名 / 调整类型。</div>
-                <div class="gj-sbgen-tpl-list">${templateEntries.map(renderRow).join('')}</div>
-                <button type="button" class="gj-custom-btn gj-sbgen-tpl-add" style="margin-top:6px;"><i class="fa-solid fa-plus"></i> 增加一条</button>
-                <button type="button" class="gj-custom-btn gj-sbgen-tpl-reset" style="margin-top:6px;margin-left:4px;"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
-            </div>`);
-            const sync = () => {
-                templateEntries = [];
-                $editor.find('.gj-sbgen-tpl-row').each(function () {
-                    const n = $(this).find('.gj-sbgen-tpl-name').val().trim();
-                    if (!n) return;
-                    templateEntries.push({
-                        name: n,
-                        type: $(this).find('.gj-sbgen-tpl-type').val(),
-                        placeholder: $(this).find('.gj-sbgen-tpl-ph').val().trim()
-                    });
-                });
-            };
-            $editor.on('click', '.gj-sbgen-tpl-del', function () { $(this).closest('.gj-sbgen-tpl-row').remove(); });
-            $editor.find('.gj-sbgen-tpl-add').on('click', function () {
-                const idx = $editor.find('.gj-sbgen-tpl-row').length;
-                $editor.find('.gj-sbgen-tpl-list').append(renderRow({ name: '', type: 'text', placeholder: '' }, idx));
-            });
-            $editor.find('.gj-sbgen-tpl-reset').on('click', function () {
-                templateEntries = DEFAULT_TEMPLATE.map(e => ({ ...e }));
-                $editor.find('.gj-sbgen-tpl-list').html(templateEntries.map(renderRow).join(''));
-            });
-            const pop = new SillyTavern.Popup($editor, SillyTavern.POPUP_TYPE.CONFIRM, "编辑常规条目模板", { okButton: "保存", cancelButton: "取消" });
-            const ok = await pop.show();
-            if (ok) { sync(); toastr.success(`已保存 ${templateEntries.length} 条常规条目`); }
-        };
-        $tool.find('.gj-sbgen-edit-template').on('click', openTemplateEditor);
-
-        // ---- 模式 tab（生成 / 升级）----
-        $tool.find('.gj-sbgen-mode-tabs .gj-sb-source-tab').on('click', function () {
-            const mode = $(this).data('mode');
-            if (mode === 'upgrade') {
-                // 关闭本弹窗并打开现有升级工具
-                if (toolPopup && toolPopup.complete) {
-                    toolPopup.complete(SillyTavern.POPUP_RESULT.CANCELLED);
-                } else if (typeof Swal !== 'undefined') Swal.close();
-                setTimeout(() => openStatusBarTool(), 150);
-                return;
-            }
-            $tool.find('.gj-sbgen-mode-tabs .gj-sb-source-tab').removeClass('active');
-            $(this).addClass('active');
-        });
-
-        $tool.find('.gj-sbgen-config-btn').on('click', () => showApiConfigDialog());
-
-        // 状态栏工具专属引导（与开场白 tour 同构：遮罩+tooltip 全部 append 到 $tool，position:absolute）
-        const startStatusbarTour = () => {
-            const sbSteps = [
-                { selector: null, title: '欢迎使用状态栏工具',
-                  desc: '让状态栏对 AI 的格式错误有<b>容错能力</b>——单项出错只影响那一项，其他照常显示。<br><br>接下来带你过一遍界面布局。' },
-                { selector: '.gj-sbgen-mode-tabs', title: '1. 两种使用模式',
-                  desc: '<b>生成状态栏</b> — 没有状态栏？从零让 AI 生成一个。<br><b>升级现有状态栏</b> — 已有状态栏？把它改造成高容错架构，一项写错不影响其余项。' },
-                { selector: '.gj-sbgen-mat-list', title: '2. 选参考素材（生成模式）',
-                  desc: '勾选要让 AI 参考的内容：<br>· <b>角色设定</b> — 自动读取<br>· <b>开场白正文</b> — 支持多选<br>· <b>首页美化 / 世界书条目</b> — 提升风格贴合度<br>· <b>常规条目模板</b> — 可自定义 9 条默认项' },
-                { selector: '.gj-sbgen-edit-template', title: '3. 自定义条目模板',
-                  desc: '默认有 9 条常规模板（时间 / 地点 / 着装 / 关系…）。点<b>编辑</b>可增删改名，AI 会在此基础上为当前角色微调。' },
-                { selector: '.gj-sbgen-analyze-btn', title: '4. 开始生成',
-                  desc: '素材准备好后点这里：<br>① AI 出条目清单（可修改）<br>② 填写视觉风格描述（可留空）<br>③ 生成完整正则 + 世界书格式<br>④ 结果可预览、回退、一键写回角色卡' },
-                { selector: '.gj-sbgen-config-btn', title: '5. AI 配置',
-                  desc: '默认用酒馆主 API。需要切换时点 <i class="fa-solid fa-gear"></i>，填入自定义 OpenAI 兼容接口（base URL + key + model）。' },
-                { selector: '.gj-sbgen-help-btn', title: '引导完成！',
-                  desc: '如果之后需要回顾，点右上角 <i class="fa-solid fa-circle-question"></i> 打开帮助，再点<b>重新引导</b>即可再跑一遍。' }
-            ];
-
-            // 遮罩四块（同开场白 tour）
-            let sbPanels = {};
-            let sbTooltip = null;
-            let sbGlow = null;
-            let sbIdx = 0;
-
-            const sbCreatePanels = () => {
-                ['top', 'bottom', 'left', 'right'].forEach(pos => {
-                    sbPanels[pos] = $('<div class="gj-tour-panel"></div>');
-                    $tool.append(sbPanels[pos]);
-                });
-            };
-            const sbUpdatePanels = ($target) => {
-                const wEl = $tool[0];
-                const ww = wEl.offsetWidth, wh = wEl.offsetHeight;
-                if (!$target) {
-                    sbPanels.top.css({ top: 0, left: 0, width: ww, height: wh });
-                    sbPanels.bottom.css({ display: 'none' });
-                    sbPanels.left.css({ display: 'none' });
-                    sbPanels.right.css({ display: 'none' });
-                    return;
-                }
-                sbPanels.bottom.css({ display: '' }); sbPanels.left.css({ display: '' }); sbPanels.right.css({ display: '' });
-                const wRect = wEl.getBoundingClientRect();
-                const tRect = $target[0].getBoundingClientRect();
-                const pad = 6;
-                const hole = {
-                    top: Math.max(0, tRect.top - wRect.top - pad),
-                    left: Math.max(0, tRect.left - wRect.left - pad),
-                    bottom: Math.min(wh, tRect.bottom - wRect.top + pad),
-                    right: Math.min(ww, tRect.right - wRect.left + pad),
-                };
-                hole.width = hole.right - hole.left;
-                hole.height = hole.bottom - hole.top;
-                sbPanels.top.css({ top: 0, left: 0, width: ww, height: Math.max(0, hole.top) });
-                sbPanels.bottom.css({ top: hole.bottom, left: 0, width: ww, height: Math.max(0, wh - hole.bottom) });
-                sbPanels.left.css({ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height });
-                sbPanels.right.css({ top: hole.top, left: hole.right, width: Math.max(0, ww - hole.right), height: hole.height });
-            };
-            const sbAddGlow = ($target) => {
-                if (!$target) return;
-                const wRect = $tool[0].getBoundingClientRect();
-                const tRect = $target[0].getBoundingClientRect();
-                const pad = 6;
-                sbGlow = $('<div class="gj-tour-glow"></div>').css({
-                    top: tRect.top - wRect.top - pad, left: tRect.left - wRect.left - pad,
-                    width: tRect.width + pad * 2, height: tRect.height + pad * 2,
-                });
-                $tool.append(sbGlow);
-            };
-            const sbPositionTooltip = ($target) => {
-                requestAnimationFrame(() => {
-                    if (!sbTooltip || !sbTooltip[0]) return;
-                    const el = sbTooltip[0];
-                    const wRect = $tool[0].getBoundingClientRect();
-                    const tw = el.offsetWidth, th = el.offsetHeight;
-                    const ww = wRect.width, wh = wRect.height;
-                    if (!$target) {
-                        el.style.left = Math.max(10, (ww - tw) / 2) + 'px';
-                        el.style.top = Math.max(10, (wh - th) / 2) + 'px';
-                    } else {
-                        const tRect = $target[0].getBoundingClientRect();
-                        const relBottom = tRect.bottom - wRect.top;
-                        const relTop = tRect.top - wRect.top;
-                        const relCx = (tRect.left + tRect.right) / 2 - wRect.left;
-                        let left = relCx - tw / 2;
-                        let top = (relBottom + th + 16 < wh) ? relBottom + 16 : (relTop - th - 16 > 0) ? relTop - th - 16 : Math.max(10, (wh - th) / 2);
-                        el.style.left = Math.max(10, Math.min(left, ww - tw - 10)) + 'px';
-                        el.style.top = Math.max(10, Math.min(top, wh - th - 10)) + 'px';
-                    }
-                });
-            };
-            const sbCleanupVisuals = () => {
-                if (sbTooltip) { sbTooltip.remove(); sbTooltip = null; }
-                if (sbGlow) { sbGlow.remove(); sbGlow = null; }
-            };
-            const sbFinish = () => {
-                sbCleanupVisuals();
-                Object.values(sbPanels).forEach($p => $p.remove());
-                sbPanels = {};
-            };
-            const sbShowStep = (index) => {
-                sbCleanupVisuals();
-                if (index < 0 || index >= sbSteps.length) { sbFinish(); return; }
-                const step = sbSteps[index];
-                sbIdx = index;
-                setTimeout(() => {
-                    let $target = null;
-                    if (step.selector) {
-                        $target = $tool.find(step.selector).first();
-                        if (!$target.length) $target = null;
-                    }
-                    if ($target) {
-                        // 滚动容器让目标可见
-                        const scrollTop = $tool.scrollTop();
-                        const toolTop = $tool.offset().top;
-                        const targetTop = $target.offset().top;
-                        const diff = targetTop - toolTop;
-                        if (diff < 0 || diff > $tool.height() - 80) {
-                            $tool.scrollTop(scrollTop + diff - 80);
-                        }
-                    }
-                    setTimeout(() => {
-                        if (step.selector) {
-                            $target = $tool.find(step.selector).first();
-                            if (!$target.length) $target = null;
-                        }
-                        sbUpdatePanels($target);
-                        sbAddGlow($target);
-                        const isLast = index === sbSteps.length - 1;
-                        const isFirst = index === 0;
-                        const stepInfo = `${index + 1} / ${sbSteps.length}`;
-                        const actionBtns = `<button class="gj-tour-btn primary tour-next">${isLast ? '完成' : '下一步'}</button>`;
-                        sbTooltip = $(`<div class="gj-tour-tooltip"><div class="gj-tour-title">${step.title}</div><div class="gj-tour-desc">${step.desc}</div><div class="gj-tour-footer"><span class="gj-tour-step-info">${stepInfo}</span><div class="gj-tour-btns"><button class="gj-tour-btn tour-skip">跳过</button>${!isFirst ? '<button class="gj-tour-btn tour-prev">上一步</button>' : ''}${actionBtns}</div></div></div>`);
-                        sbTooltip.find('.tour-skip').on('click', sbFinish);
-                        sbTooltip.find('.tour-prev').on('click', () => sbShowStep(index - 1));
-                        sbTooltip.find('.tour-next').on('click', () => { if (isLast) sbFinish(); else sbShowStep(index + 1); });
-                        $tool.append(sbTooltip);
-                        sbPositionTooltip($target);
-                    }, 50);
-                }, 60);
-            };
-
-            sbCreatePanels();
-            sbUpdatePanels(null);
-            sbShowStep(0);
-        };
-
-        $tool.find('.gj-sbgen-help-btn').on('click', async () => {
-            const $help = $(`<div class="gj-sbgen-help-body" style="text-align:left;max-height:70vh;overflow:auto;padding:4px 8px;font-size:0.9em;line-height:1.75;">
-                <div style="background:rgba(122,154,131,0.08);border-left:3px solid #7a9a83;padding:10px 14px;border-radius:4px;margin-bottom:14px;">
-                    <b><i class="fa-solid fa-lightbulb"></i> 一句话介绍</b><br>
-                    让状态栏对 AI 的格式错误有<b>容错能力</b>：某条字段写错只影响那一项，其他照常显示。
-                </div>
-
-                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-layer-group" style="opacity:0.6;"></i> 两个功能</h4>
-                <p style="margin:4px 0;"><b>① 生成状态栏（从零开始）</b> —— 角色卡没有状态栏？AI 按当前角色卡风格一键生成。</p>
-                <p style="margin:4px 0;"><b>② 升级现有状态栏</b> —— 已有状态栏？升级成「整块文本 + JS 按行解析」架构，不再怕 AI 格式出错。</p>
-
-                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-route" style="opacity:0.6;"></i> 使用步骤（以「生成」为例）</h4>
-                <ol style="padding-left:22px;margin:4px 0;">
-                    <li><b>选素材</b>：勾选要让 AI 参考的内容（角色设定 / 开场白 / 首页美化 / 世界书条目 / 常规条目模板）。</li>
-                    <li><b>分析并生成条目建议</b>：AI 会输出一份条目清单，可以直接在编辑器里改名、增删、改类型。</li>
-                    <li><b>填视觉风格</b>：一两句话描述颜色 / 字体 / 氛围，或留空让 AI 自己决定。</li>
-                    <li><b>生成正则 + 世界书</b>：得到成品，自带样本和实时预览。</li>
-                    <li><b>一键写回角色卡</b>：直接替换原有局部正则 / 世界书条目。</li>
-                </ol>
-
-                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-circle-question" style="opacity:0.6;"></i> 为什么要这么做？</h4>
-                <p style="margin:4px 0;">常规状态栏正则用很多捕获组一一对应字段（HP、心情、好感度…），只要 AI 输出里<b>有一项</b>格式对不上（冒号错 / 用了中文符号 / 顺序变了），整条正则匹配失败，<b>整个状态栏当场消失</b>。</p>
-                <p style="margin:4px 0;">本工具改成「整块文本捕获 + JS 按行解析」：<br>· 单项错了<b>只</b>影响那一项，其他照常<br>· 以后加 / 改字段名<b>不用改正则</b>，世界书里加一行就行<br>· 内置对中英文冒号、半 / 全角空格、CRLF / LF 的容错</p>
-
-                <h4 style="margin:14px 0 6px;"><i class="fa-solid fa-gear" style="opacity:0.6;"></i> AI 从哪来？</h4>
-                <p style="margin:4px 0;">右上角 <i class="fa-solid fa-gear"></i> 按钮可配置：默认用酒馆主 API；也可填入自定义的 OpenAI 兼容接口（base URL + key + model）。</p>
-
-                <div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px dashed rgba(128,128,128,0.3);">
-                    <button type="button" class="gj-sbgen-start-tour gj-custom-btn primary" style="margin:0 auto;padding:8px 20px;"><i class="fa-solid fa-route"></i> 重新引导</button>
-                    <div style="margin-top:10px;opacity:0.5;font-size:0.82em;">by yelluws</div>
-                </div>
-            </div>`);
-            const pop = new SillyTavern.Popup($help, SillyTavern.POPUP_TYPE.TEXT, '状态栏工具 — 帮助', { okButton: '关闭' });
-            $help.find('.gj-sbgen-start-tour').on('click', () => {
-                pop.complete(SillyTavern.POPUP_RESULT.AFFIRMATIVE);
-                setTimeout(startStatusbarTour, 280);
-            });
-            await pop.show();
-        });
-
-        // ---- Phase 0 → Phase 1: 分析生成条目建议 ----
-        const buildAnalyzeMessages = () => {
-            const sections = [];
-            if (selected.persona) {
-                const p = getPersonaText();
-                if (p) sections.push('## 角色设定\n' + truncate(p, 2500));
-            }
-            if (selected.greeting) {
-                const g = getGreetingText();
-                if (g) sections.push('## 开场白（first_mes 正文）\n' + truncate(g, 2500));
-            }
-            if (selected.homepage && selected.pickedHomepageHtml) {
-                sections.push('## 首页美化 HTML（用于提取视觉风格 —— 颜色/字体/边框/纹理）\n' + truncate(selected.pickedHomepageHtml, 4000));
-            }
-            if (selected.worldbook && selected.pickedWbEntries.length) {
-                const wbText = selected.pickedWbEntries.map(e => `### ${e.name}\n${e.content}`).join('\n\n');
-                sections.push('## 世界书条目（世界观 / 剧情设定）\n' + truncate(wbText, 3500));
-            }
-            if (selected.template) {
-                const tpl = templateEntries.map(e => `- ${e.name}（${e.type}）示例：${e.placeholder}`).join('\n');
-                sections.push('## 常规条目模板（请在此基础上为当前角色增删 / 改名 / 调整类型）\n' + tpl);
-            }
-            const extraTrim = (selected.extra || '').trim();
-            if (extraTrim) sections.push('## 用户补充要求\n' + extraTrim);
-
-            const userMsg = sections.length
-                ? sections.join('\n\n')
-                : '（用户未提供任何素材，请基于通用角色扮演场景输出默认条目）';
-
-            return [
-                { role: 'system', content: AI_STATUSBAR_GEN_ANALYZE_PROMPT },
-                { role: 'user', content: userMsg }
-            ];
-        };
-
-        const parseProposal = (raw) => {
-            if (!raw) return null;
-            let txt = raw.trim();
-            const fenceMatch = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
-            if (fenceMatch) txt = fenceMatch[1];
-            txt = txt.trim();
-            // 容错：去掉起止多余文本，取第一个 { 到最后一个 }
-            const first = txt.indexOf('{'); const last = txt.lastIndexOf('}');
-            if (first >= 0 && last > first) txt = txt.substring(first, last + 1);
-            try {
-                const obj = JSON.parse(txt);
-                if (!obj || typeof obj !== 'object') return null;
-                const entries = Array.isArray(obj.entries) ? obj.entries.filter(e => e && e.name).map(e => ({
-                    name: String(e.name).trim(),
-                    type: ['text','progress','star','icon','badge'].includes(e.type) ? e.type : 'text',
-                    placeholder: e.placeholder ? String(e.placeholder) : '',
-                    min: typeof e.min === 'number' ? e.min : (e.type === 'progress' ? 0 : undefined),
-                    max: typeof e.max === 'number' ? e.max : (e.type === 'progress' ? 100 : (e.type === 'star' ? 5 : undefined)),
-                    icon: e.icon ? String(e.icon) : undefined
-                })) : [];
-                return {
-                    styleSummary: obj.styleSummary ? String(obj.styleSummary) : '',
-                    entries
-                };
-            } catch (e) {
-                console.warn('proposal JSON parse failed:', e, txt.substring(0, 200));
-                return null;
-            }
-        };
-
-        const renderEntryRows = () => {
-            const $list = $tool.find('.gj-sbgen-entry-list');
-            $list.empty();
-            proposal.entries.forEach((e, idx) => {
-                const row = $(`<div class="gj-sbgen-entry-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-                    <i class="fa-solid fa-grip-vertical gj-sbgen-entry-drag" style="opacity:0.4;cursor:grab;"></i>
-                    <input type="text" class="gj-sbgen-entry-name" value="${_.escape(e.name)}" style="flex:2;min-width:0;" placeholder="条目名">
-                    <select class="gj-sbgen-entry-type" style="flex:1;min-width:0;">
-                        <option value="text" ${e.type==='text'?'selected':''}>文本</option>
-                        <option value="progress" ${e.type==='progress'?'selected':''}>进度</option>
-                        <option value="star" ${e.type==='star'?'selected':''}>星级</option>
-                        <option value="icon" ${e.type==='icon'?'selected':''}>图标</option>
-                        <option value="badge" ${e.type==='badge'?'selected':''}>标签</option>
-                    </select>
-                    <input type="text" class="gj-sbgen-entry-ph" value="${_.escape(e.placeholder||'')}" style="flex:2;min-width:0;" placeholder="示例值">
-                    <button type="button" class="gj-custom-btn gj-sbgen-entry-del" title="删除"><i class="fa-solid fa-trash"></i></button>
-                </div>`);
-                $list.append(row);
-            });
-        };
-
-        const syncProposalFromUI = () => {
-            if (!proposal) proposal = { styleSummary: '', entries: [] };
-            proposal.styleSummary = $tool.find('.gj-sbgen-style-input').val().trim();
-            proposal.entries = [];
-            $tool.find('.gj-sbgen-entry-row').each(function () {
-                const name = $(this).find('.gj-sbgen-entry-name').val().trim();
-                if (!name) return;
-                const type = $(this).find('.gj-sbgen-entry-type').val();
-                const ph = $(this).find('.gj-sbgen-entry-ph').val().trim();
-                const e = { name, type, placeholder: ph };
-                if (type === 'progress') { e.min = 0; e.max = 100; }
-                if (type === 'star') { e.min = 1; e.max = 5; }
-                proposal.entries.push(e);
-            });
-        };
-
-        $tool.on('click', '.gj-sbgen-entry-del', function () { $(this).closest('.gj-sbgen-entry-row').remove(); });
-        $tool.find('.gj-sbgen-entry-add').on('click', function () {
-            if (!proposal) proposal = { styleSummary: '', entries: [] };
-            proposal.entries.push({ name: '', type: 'text', placeholder: '' });
-            renderEntryRows();
-        });
-
-        const runAnalyze = async () => {
-            if (isGenerating) return;
-            const messages = buildAnalyzeMessages();
-            showLoading('正在分析素材并生成条目建议...');
-            const raw = await doAiCall(messages);
-            if (!raw) return;
-            const parsed = parseProposal(raw);
-            if (!parsed || !parsed.entries.length) {
-                toastr.error("AI 输出无法解析为条目 JSON，已保留默认模板");
-                proposal = { styleSummary: '', entries: templateEntries.map(e => ({ ...e })) };
-            } else {
-                proposal = parsed;
-            }
-            $tool.find('.gj-sbgen-style-input').val(proposal.styleSummary || '');
-            renderEntryRows();
-            $tool.find('.gj-sbgen-phase-mat').hide();
-            $tool.find('.gj-sbgen-phase-prop').slideDown(200);
-        };
-        $tool.find('.gj-sbgen-analyze-btn').on('click', runAnalyze);
-        $tool.find('.gj-sbgen-reanalyze').on('click', runAnalyze);
-        $tool.find('.gj-sbgen-back-mat').on('click', () => {
-            $tool.find('.gj-sbgen-phase-prop').hide();
-            $tool.find('.gj-sbgen-phase-mat').slideDown(200);
-        });
-
-        // ---- Phase 1 → Phase 2: 渲染最终 HTML ----
-        const buildRenderMessages = () => {
-            syncProposalFromUI();
-            const parts = [];
-            parts.push('## 视觉风格摘要（必须严格遵循）\n' + (proposal.styleSummary || '(未提供 —— 请根据下方素材自选合适风格)'));
-            parts.push('## 条目列表 (严格按此生成)\n' + JSON.stringify(proposal.entries, null, 2));
-            if (selected.homepage && selected.pickedHomepageHtml) {
-                parts.push('## 首页美化 HTML（作为视觉参考，请提取其配色/字体/圆角/纹理风格并应用于状态栏）\n' + truncate(selected.pickedHomepageHtml, 4000));
-            }
-            if (selected.persona) {
-                const p = getPersonaText();
-                if (p) parts.push('## 角色设定（用于确认风格基调，请勿把内容复制进 HTML）\n' + truncate(p, 1500));
-            }
-            if (selected.worldbook && selected.pickedWbEntries.length) {
-                const wbText = selected.pickedWbEntries.map(e => `### ${e.name}\n${e.content}`).join('\n\n');
-                parts.push('## 世界书条目（仅作世界观参考，请勿写死进 HTML）\n' + truncate(wbText, 2500));
-            }
-            if ((selected.extra || '').trim()) parts.push('## 用户补充要求\n' + selected.extra.trim());
-            return [
-                { role: 'system', content: AI_STATUSBAR_GEN_RENDER_PROMPT },
-                { role: 'user', content: parts.join('\n\n') }
-            ];
-        };
-
-        // ---- 版本快照栈：支持无限撤销 / 前进 / 重 roll ----
-        let versionStack = [];
-        let redoStack = [];
-        const pushSnapshot = () => {
-            versionStack.push({
-                html: currentHtml,
-                history: conversationHistory.slice(),
-                sampleData, worldBookOutput, suggestedRegex
-            });
-            redoStack = [];
-            updateHistBtnState();
-        };
-        const restoreSnapshot = (snap) => {
-            currentHtml       = snap.html;
-            conversationHistory = snap.history.slice();
-            sampleData        = snap.sampleData;
-            worldBookOutput   = snap.worldBookOutput;
-            suggestedRegex    = snap.suggestedRegex;
-            $tool.find('.gj-sbgen-html-editor').val(currentHtml ? wrapFence(currentHtml) : '');
-            $tool.find('.gj-sbgen-sample').val(sampleData || '');
-            $tool.find('.gj-sbgen-wb-editor').val(worldBookOutput || '');
-            $tool.find('.gj-sbgen-wb-section').toggle(!!worldBookOutput);
-            $tool.find('.gj-sbgen-add-wb-btn').toggle(!!worldBookOutput);
-            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + (suggestedRegex || ''));
-            updatePreview(currentHtml);
-        };
-        const updateHistBtnState = () => {
-            const canUndo = versionStack.length >= 2;
-            $tool.find('.gj-sbgen-undo-btn').prop('disabled', !canUndo);
-            const undoCount = Math.max(0, versionStack.length - 1);
-            $tool.find('.gj-sbgen-undo-btn .gj-hist-count').text(undoCount > 0 ? ` ${undoCount}` : '');
-            const canRedo = redoStack.length > 0;
-            $tool.find('.gj-sbgen-redo-btn').prop('disabled', !canRedo);
-            $tool.find('.gj-sbgen-redo-btn .gj-hist-count').text(redoStack.length > 0 ? ` ${redoStack.length}` : '');
-            const canReroll = conversationHistory.some(m => m.role === 'assistant');
-            $tool.find('.gj-sbgen-reroll-btn').prop('disabled', !canReroll);
-        };
-
-        const extractRegexFromResult = (text) => {
-            const m = text.match(/<!--\s*findRegex:\s*(.+?)\s*-->/);
-            if (m) {
-                let r = m[1].trim();
-                // 去掉起止斜线 /.../flags → 只保留 pattern 部分
-                const wrap = r.match(/^\/(.*)\/[a-z]*$/i);
-                if (wrap) r = wrap[1];
-                return r;
-            }
-            return null;
-        };
-
-        const processRenderResult = (rawResult) => {
-            let result = rawResult;
-            const foundRegex = extractRegexFromResult(result);
-            if (foundRegex) suggestedRegex = foundRegex;
-            const wbMatch = result.match(/<!--\s*WORLDBOOK_START\s*-->([\s\S]*?)<!--\s*WORLDBOOK_END\s*-->/);
-            if (wbMatch) {
-                worldBookOutput = wbMatch[1].trim();
-                $tool.find('.gj-sbgen-wb-editor').val(worldBookOutput);
-                $tool.find('.gj-sbgen-wb-section').show();
-                $tool.find('.gj-sbgen-add-wb-btn').show();
-                result = result.replace(/<!--\s*WORLDBOOK_START\s*-->[\s\S]*?<!--\s*WORLDBOOK_END\s*-->/, '').trim();
-            }
-            const sampleMatch = result.match(/<!--\s*SAMPLE_START\s*-->([\s\S]*?)<!--\s*SAMPLE_END\s*-->/);
-            if (sampleMatch) {
-                sampleData = sampleMatch[1].trim();
-                $tool.find('.gj-sbgen-sample').val(sampleData);
-                result = result.replace(/<!--\s*SAMPLE_START\s*-->[\s\S]*?<!--\s*SAMPLE_END\s*-->/, '').trim();
-            }
-            // 去掉首行的 findRegex 注释
-            result = result.replace(/^<!--\s*findRegex:[^\n]*-->\s*\n?/, '');
-            return cleanAiOutput(result);
-        };
-
-        const buildStatusPreview = (html) => {
-            let r = html;
-            if (sampleData) {
-                const clean = (sampleData || '').replace(/<\/?status>/gi, '').trim();
-                const escaped = clean.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const scriptParts = [];
-                r = r.replace(/<script[\s\S]*?<\/script>/gi, (m) => { scriptParts.push(m); return `<!--SGSCR_${scriptParts.length - 1}-->`; });
-                r = r.replace(/\$1/g, escaped);
-                for (let i = 2; i <= 9; i++) r = r.replace(new RegExp('\\$' + i, 'g'), '(样本$' + i + ')');
-                scriptParts.forEach((s, i) => { r = r.replace(`<!--SGSCR_${i}-->`, s); });
-            }
-            return r;
-        };
-
-        const updatePreview = (html) => {
-            const $prev = $tool.find('.gj-sbgen-preview');
-            $prev.empty();
-            const iframe = document.createElement('iframe');
-            iframe.sandbox = 'allow-same-origin allow-scripts';
-            iframe.style.cssText = 'width:100%;border:none;min-height:80px;border-radius:4px;background:#fff;';
-            $prev.append(iframe);
-            const previewHtml = buildStatusPreview(html);
-            setTimeout(() => {
-                const doc = iframe.contentDocument || iframe.contentWindow.document;
-                doc.open(); doc.write(previewHtml); doc.close();
-                const resize = () => { iframe.style.height = Math.max(80, doc.body.scrollHeight + 20) + 'px'; };
-                setTimeout(resize, 100);
-                setTimeout(resize, 500);
-            }, 50);
-        };
-
-        // 点击 / 聚焦时放大 textarea，失焦且内容为空时收起（与状态栏工具一致）
-        $tool.on('focus click', '.gj-sb-worldbook', function () { $(this).addClass('gj-sb-expanded'); });
-        $tool.on('blur', '.gj-sb-worldbook', function () { if (!$(this).val().trim()) $(this).removeClass('gj-sb-expanded'); });
-
-        $tool.find('.gj-sbgen-sample').on('input', function () {
-            sampleData = $(this).val();
-            if (currentHtml) updatePreview(currentHtml);
-        });
-        $tool.find('.gj-sbgen-html-editor').on('input', function () {
-            currentHtml = stripFence($(this).val());
-            $tool.find('.gj-sbgen-status').text('(已手动编辑)');
-            updatePreview(currentHtml);
-        });
-
-        $tool.find('.gj-sbgen-render-btn').on('click', async () => {
-            syncProposalFromUI();
-            if (!proposal || !proposal.entries.length) { toastr.warning("请至少保留一条条目"); return; }
-            conversationHistory = buildRenderMessages();
-            versionStack = [];
-            redoStack = [];
-            $tool.find('.gj-sbgen-html-editor').val('');
-            $tool.find('.gj-sbgen-preview').empty();
-            $tool.find('.gj-sbgen-phase-prop').hide();
-            $tool.find('.gj-sbgen-phase-result').slideDown(200);
-            $tool.find('.gj-sbgen-status').text('(AI 生成中...)');
-            const raw = await doAiCall(conversationHistory, { loadingText: 'AI 正在生成状态栏...' });
-            if (!raw) { $tool.find('.gj-sbgen-status').text('(失败)'); return; }
-            conversationHistory.push({ role: 'assistant', content: raw });
-            currentHtml = processRenderResult(raw);
-            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + suggestedRegex);
-            $tool.find('.gj-sbgen-html-editor').val(wrapFence(currentHtml));
-            updatePreview(currentHtml);
-            $tool.find('.gj-sbgen-status').text('(生成完毕)');
-            pushSnapshot();
-        });
-
-        $tool.find('.gj-sbgen-back-prop').on('click', () => {
-            $tool.find('.gj-sbgen-phase-result').hide();
-            $tool.find('.gj-sbgen-phase-prop').slideDown(200);
-        });
-
-        // 润色
-        const doRefine = async () => {
-            if (isGenerating) return;
-            const $ri = $tool.find('.gj-sbgen-refine');
-            const feedback = $ri.val().trim();
-            if (!feedback) return;
-            $ri.val('');
-            conversationHistory.push({ role: 'user', content: feedback });
-            $tool.find('.gj-sbgen-status').text('(AI 润色中...)');
-            $tool.find('.gj-sbgen-html-editor').val('');
-            const raw = await doAiCall(conversationHistory, { loadingText: 'AI 正在按要求润色...' });
-            if (!raw) {
-                $tool.find('.gj-sbgen-status').text('(失败)');
-                conversationHistory.pop(); // 失败则把刚才的 user 回撤，保持一致性
-                updateHistBtnState();
-                return;
-            }
-            conversationHistory.push({ role: 'assistant', content: raw });
-            currentHtml = processRenderResult(raw);
-            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + suggestedRegex);
-            $tool.find('.gj-sbgen-html-editor').val(wrapFence(currentHtml));
-            updatePreview(currentHtml);
-            $tool.find('.gj-sbgen-status').text('(润色完毕)');
-            pushSnapshot();
-        };
-        $tool.find('.gj-sbgen-refine-btn').on('click', doRefine);
-        $tool.find('.gj-sbgen-refine').on('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doRefine(); } });
-
-        // 重 roll：用同一 user 指令重新生成当前版本
-        $tool.find('.gj-sbgen-reroll-btn').on('click', async () => {
-            if (isGenerating) return;
-            // 找到最后一个 assistant 的位置，截掉它（及其后可能的任何残留）以作为这次调用的 prompt
-            let lastAssistantIdx = -1;
-            for (let i = conversationHistory.length - 1; i >= 0; i--) {
-                if (conversationHistory[i].role === 'assistant') { lastAssistantIdx = i; break; }
-            }
-            if (lastAssistantIdx < 0) return;
-            const trimmed = conversationHistory.slice(0, lastAssistantIdx);
-            $tool.find('.gj-sbgen-status').text('(AI 重新生成中...)');
-            $tool.find('.gj-sbgen-html-editor').val('');
-            const raw = await doAiCall(trimmed, { loadingText: 'AI 正在重新生成当前版本...' });
-            if (!raw) { $tool.find('.gj-sbgen-status').text('(失败)'); return; }
-            conversationHistory = trimmed.slice();
-            conversationHistory.push({ role: 'assistant', content: raw });
-            currentHtml = processRenderResult(raw);
-            $tool.find('.gj-sbgen-suggested-regex').text('findRegex: ' + suggestedRegex);
-            $tool.find('.gj-sbgen-html-editor').val(wrapFence(currentHtml));
-            updatePreview(currentHtml);
-            $tool.find('.gj-sbgen-status').text('(重 roll 完毕)');
-            // 重 roll 视为替换当前版本：pop 旧顶 + push 新顶
-            if (versionStack.length > 0) versionStack.pop();
-            pushSnapshot();
-        });
-
-        // 撤销：回到上一版本（当前版本压入 redo 栈）
-        $tool.find('.gj-sbgen-undo-btn').on('click', () => {
-            if (versionStack.length < 2) return;
-            redoStack.push(versionStack.pop());
-            const prev = versionStack[versionStack.length - 1];
-            restoreSnapshot(prev);
-            $tool.find('.gj-sbgen-status').text('(已撤销到上一版)');
-            updateHistBtnState();
-        });
-
-        // 前进：找回被撤销的版本
-        $tool.find('.gj-sbgen-redo-btn').on('click', () => {
-            if (redoStack.length === 0) return;
-            const next = redoStack.pop();
-            versionStack.push(next);
-            restoreSnapshot(next);
-            $tool.find('.gj-sbgen-status').text('(已前进到下一版)');
-            updateHistBtnState();
-        });
-
-        // 全屏预览
-        $tool.find('.gj-sbgen-fullscreen').on('click', () => {
-            if (!currentHtml) { toastr.warning("暂无预览内容"); return; }
-            const $overlay = $(`<div class="gj-adv-fs-overlay">
-                <div class="gj-adv-fs-topbar"><span><i class="fa-solid fa-eye"></i> 全屏预览</span><button type="button" class="gj-adv-fs-close"><i class="fa-solid fa-xmark"></i> 关闭</button></div>
-            </div>`);
-            const fs = document.createElement('iframe');
-            fs.sandbox = 'allow-same-origin allow-scripts';
-            fs.className = 'gj-adv-fs-iframe';
-            $overlay.append(fs);
-            const $host = $tool.closest('.popup, [class*="popup"], dialog, .dialogue_popup');
-            if ($host.length) $host.append($overlay); else $(document.body).append($overlay);
-            setTimeout(() => {
-                const doc = fs.contentDocument || fs.contentWindow.document;
-                doc.open(); doc.write(buildStatusPreview(currentHtml)); doc.close();
-            }, 50);
-            const rm = () => { $overlay.remove(); $(document).off('keydown.gjsbgenfs'); };
-            $overlay.find('.gj-adv-fs-close').on('click', rm);
-            $(document).on('keydown.gjsbgenfs', (e) => { if (e.key === 'Escape') rm(); });
-        });
-
-        // 导出正则
-        $tool.find('.gj-sbgen-export-btn').on('click', () => {
-            const html = stripFence($tool.find('.gj-sbgen-html-editor').val());
-            if (!html) { toastr.warning("HTML 为空"); return; }
-            const json = {
-                id: "statusbar-ai-" + Date.now(),
-                scriptName: "状态栏(AI生成)",
-                findRegex: suggestedRegex || "<status>([\\s\\S]*?)</status>",
-                replaceString: '```html\n' + html + '\n```',
-                trimStrings: [],
-                placement: [2],
-                disabled: false,
-                markdownOnly: true,
-                promptOnly: false,
-                runOnEdit: true,
-                substituteRegex: 0,
-                minDepth: 0,
-                maxDepth: 0
-            };
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(json, null, 2));
-            const anchor = document.createElement('a');
-            anchor.href = dataStr;
-            anchor.download = 'Regex_StatusBar_AIGen.json';
-            document.body.appendChild(anchor);
-            anchor.click();
-            anchor.remove();
-            toastr.success("状态栏正则已下载，请在正则扩展中导入");
-        });
-
-        // 新增到世界书
-        $tool.find('.gj-sbgen-add-wb-btn').on('click', async () => {
-            const wbText = $tool.find('.gj-sbgen-wb-editor').val().trim();
-            if (!wbText) { toastr.warning("世界书内容为空"); return; }
-            const lorebookName = window.TavernHelper?.getCurrentCharPrimaryLorebook?.();
-            if (!lorebookName) { toastr.warning("当前角色未绑定主世界书"); return; }
-            if (!confirm(`确定新增一条世界书条目到「${lorebookName}」？\n名称：状态栏输出格式(AI生成)`)) return;
-            try {
-                const newEntry = {
-                    comment: '状态栏输出格式(AI生成)',
-                    key: ['status', '状态栏'],
-                    keysecondary: [],
-                    content: wbText,
-                    constant: true,
-                    selective: false,
-                    disable: false,
-                    order: 100,
-                    position: 0,
-                    depth: 4
-                };
-                if (typeof window.TavernHelper.createLorebookEntries === 'function') {
-                    await window.TavernHelper.createLorebookEntries(lorebookName, [newEntry]);
-                } else if (typeof window.TavernHelper.setLorebookEntries === 'function') {
-                    const entries = await window.TavernHelper.getLorebookEntries(lorebookName);
-                    entries.push(newEntry);
-                    await window.TavernHelper.setLorebookEntries(lorebookName, entries);
-                } else {
-                    throw new Error('TavernHelper 没有可用的创建条目方法');
-                }
-                toastr.success(`已新增世界书条目到「${lorebookName}」`);
-            } catch (e) { console.error(e); toastr.error("新增世界书失败：" + e.message); }
-        });
-
-        toolPopup = new SillyTavern.Popup($tool, SillyTavern.POPUP_TYPE.TEXT, "", { large: true, okButton: "关闭" });
-        // 首次打开自动启动引导
-        const SBGEN_TOUR_KEY = 'gj_sbgen_tour_v1';
-        if (localStorage.getItem(SBGEN_TOUR_KEY) !== 'true') {
-            localStorage.setItem(SBGEN_TOUR_KEY, 'true');
-            setTimeout(startStatusbarTour, 600);
-        }
-        await toolPopup.show();
-    }
 
     // 目录处理 (分批)
     async function processBatchAndSave(charId, totalItems, processFunction, refreshCallback, myPopup) {
@@ -4248,7 +2550,7 @@ STYLE RULES:
             { selector: null, title: (n + 1) + '. 回到首页',
               desc: '切换到非首页开场白后，<br>内容消息底部会自动出现「回到首页」按钮：' + backHomeMock + '点击即可快速切回首页(开场白 #0)。<br><br>想要<b>自定义样式</b>并且<b>随卡片分享</b>？点顶栏 <b>🏠 图标</b> 下载美化正则，改 CSS 美化后导入到角色卡的「局部正则」即可。' },
             { selector: '.gj-icon-btn.help', title: '引导完成！',
-              desc: '现在你已了解所有核心功能！<br>如需帮助，随时点击右上角 <b>帮助(?)</b>。<br><br><span style="opacity:0.6;font-size:0.85em;">酒馆顶部还有一个「<b>状态栏工具</b>」QR 按钮，它的使用说明请在该工具页面右上角的 <i class="fa-solid fa-circle-question"></i> 里查看。</span>' }
+              desc: '现在你已了解所有核心功能！<br>如需帮助，随时点击右上角 <b>帮助(?)</b>。' }
         ];
 
         let steps = [];
@@ -4454,8 +2756,6 @@ STYLE RULES:
             <div class="gj-help-section"><h3><i class="fa-solid fa-list-ol"></i> 目录工具</h3><p>目录工具包含两个面板：</p><p><b>导入/解析</b> — 从DC原帖或作者说明中复制文字版目录列表，粘贴后点击「解析目录」自动识别并批量写入标题。</p><p><b>导出/生成</b> — 根据现有开场白标题自动生成目录文本：<br>· <b>生成跳转正则</b> — 二选一：<br>&nbsp;&nbsp;- 「基础样式」— 生成简洁跳转页，可直接使用或复制 Prompt 交给 AI 美化<br>&nbsp;&nbsp;- 「融合美化」— 已有美化 HTML？AI 保留设计并融合跳转逻辑，之后增删开场白无需改正则<br>· <b>插入为新首页</b> — 将目录作为新开场白 #0 插入<br>· <b>覆盖原首页</b> — 用目录覆盖现有开场白 #0</p></div>
             <hr class="gj-help-divider">
             <div class="gj-help-section"><h3><i class="fa-solid fa-wand-magic-sparkles"></i> 融合美化（AI）</h3><p>在「生成跳转正则」中选择<b>融合美化</b>后会打开独立面板，把已有的美化 HTML + 我们的跳转逻辑交给 AI 融合，之后无需手动维护正则中的条目列表。</p><p>HTML 来源支持二选一（默认<b>从角色卡局部正则导入</b>，也可切到<b>粘贴 HTML</b>）。融合完成后可一键<b>覆盖原局部正则</b>，改动保留在角色卡内，跟卡片一起分享。</p></div>
-            <hr class="gj-help-divider">
-            <div class="gj-help-section"><h3><i class="fa-solid fa-chart-column"></i> 状态栏工具</h3><p>酒馆顶部 QR 按钮「<b>状态栏工具</b>」打开。<b>详细使用说明请在该工具页面右上角 <i class="fa-solid fa-circle-question"></i> 按钮里查看</b>，这里不再重复。</p></div>
             <hr class="gj-help-divider">
             <div class="gj-help-section"><h3><i class="fa-solid fa-magnifying-glass"></i> 搜索替换</h3><p>全局搜索所有开场白中的文本，支持单条替换、批量替换，以及跳转到全屏编辑器中精确定位。</p></div>
             <hr class="gj-help-divider">
@@ -4692,17 +2992,16 @@ STYLE RULES:
         if (localStorage.getItem('gj_tour_resume') || localStorage.getItem(STORAGE_KEY_TOUR) !== 'true') { setTimeout(() => startTour($wrapper, tourOpts), 600); }
     }
 
-    if (window.SillyTavern && SillyTavern.SlashCommandParser) { SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'greetings', callback: showGreetingManager, helpString: '开场白管理器' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'go-start', callback: backToStart, helpString: '回到首页' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'statusbar', callback: openStatusBarAIStudio, helpString: '状态栏工具（生成 / 升级）' })); SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'home-btn-regex', callback: openHomeBtnDownloader, helpString: '回到首页按钮 - 下载美化正则' })); }
+    if (window.SillyTavern && SillyTavern.SlashCommandParser) {
+        SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'greetings', callback: showGreetingManager, helpString: '开场白管理器' }));
+        SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'go-start', callback: backToStart, helpString: '回到首页' }));
+        SillyTavern.SlashCommandParser.addCommandObject(SillyTavern.SlashCommand.fromProps({ name: 'home-btn-regex', callback: openHomeBtnDownloader, helpString: '回到首页按钮 - 下载美化正则' }));
+    }
     if (typeof replaceScriptButtons === 'function' && typeof getButtonEvent === 'function' && typeof eventOn === 'function') {
         const BUTTON_GREETINGS = '开场白管理';
-        const BUTTON_STATUSBAR = '状态栏工具';
-        // replaceScriptButtons 会用新列表覆盖掉旧注册，自动清除历史版本的"开场白切换"、"回到首页"、"状态栏 AI 工具"等按钮
-        replaceScriptButtons([
-            { name: BUTTON_GREETINGS, visible: true },
-            { name: BUTTON_STATUSBAR, visible: true }
-        ]);
+        // 状态栏工具已拆分为独立脚本（status-bar-tool.js），此处不再注册其按钮 / 命令
+        replaceScriptButtons([{ name: BUTTON_GREETINGS, visible: true }]);
         eventOn(getButtonEvent(BUTTON_GREETINGS), showGreetingManager);
-        eventOn(getButtonEvent(BUTTON_STATUSBAR), openStatusBarAIStudio);
     }
 
     // =======================================================================
