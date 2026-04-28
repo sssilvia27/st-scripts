@@ -1,6 +1,6 @@
 //name: 开场白管理器 (含动态世界书控制)
-//description: V9.1 - 已拆分状态栏工具到独立脚本 status-bar-tool.js
-//author: Yellows & Claude & User
+//description: V9.1
+//author: Yelluws
 
 (function() {
     const STORAGE_KEY_AUTO_CLOSE = 'gj_auto_close_setting_v1';
